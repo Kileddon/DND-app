@@ -1,0 +1,93 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from tabletop_companion.domain.models import AccessMode
+
+
+@dataclass(frozen=True, slots=True)
+class CreateRoomCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    gm_id: str
+    name: str
+    access_mode: AccessMode
+
+
+@dataclass(frozen=True, slots=True)
+class JoinLocalPlayerCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    display_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class StartCharacterDraftCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    player_id: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ChooseAbilityCardCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    player_id: str
+    draft_id: str
+    card_id: str
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class RestartCharacterDraftCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    player_id: str
+    draft_id: str
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmCharacterDraftCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    player_id: str
+    draft_id: str
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class AddInventoryItemCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    actor_id: str
+    character_id: str
+    name: str
+    quantity: int
+    consumable: bool
+    locked: bool
+    equipped: bool
+    charges: int | None
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class DiscardInventoryItemCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    actor_id: str
+    character_id: str
+    item_id: str
+    quantity: int
+    expected_version: int

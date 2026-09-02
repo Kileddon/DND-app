@@ -1,0 +1,9 @@
+{
+  "name": "Tabletop Companion",
+  "short_name": "Companion",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#11131a",
+  "theme_color": "#191b25",
+  "description": "Локальный помощник для настольной ролевой игры"
+}
