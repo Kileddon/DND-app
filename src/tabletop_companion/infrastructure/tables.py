@@ -108,7 +108,7 @@ class GameEventRecord(Base):
     source_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     target_ids: Mapped[list[str]] = mapped_column(JSON)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON)
-    visibility: Mapped[str] = mapped_column(String(24))
+    visibility: Mapped[str] = mapped_column(String(64))
     schema_version: Mapped[int] = mapped_column(Integer)
     command_id: Mapped[str] = mapped_column(String(36))
     occurred_at: Mapped[str] = mapped_column(String(40))
@@ -190,6 +190,99 @@ class GameSessionRecord(Base):
     started_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     paused_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     completed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class CombatRecord(Base):
+    __tablename__ = "combats"
+    __table_args__ = (
+        Index(
+            "uq_combats_session_unfinished",
+            "session_id",
+            unique=True,
+            sqlite_where=text("status != 'COMPLETED'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), index=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("game_sessions.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20))
+    round_number: Mapped[int] = mapped_column(Integer)
+    current_entry_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    entries: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
+    started_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class MonsterTemplateRecord(Base):
+    __tablename__ = "monster_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    max_hp: Mapped[int] = mapped_column(Integer)
+    current_hp: Mapped[int] = mapped_column(Integer)
+    armor_class: Mapped[int] = mapped_column(Integer)
+    notes: Mapped[str] = mapped_column(String(2000))
+    conditions: Mapped[list[str]] = mapped_column(JSON)
+    actions: Mapped[list[str]] = mapped_column(JSON)
+    created_at: Mapped[str] = mapped_column(String(40))
+
+
+class CombatantRecord(Base):
+    __tablename__ = "combatants"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    combat_id: Mapped[str] = mapped_column(ForeignKey("combats.id"), index=True)
+    entry_id: Mapped[str] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    reference_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    max_hp: Mapped[int] = mapped_column(Integer)
+    current_hp: Mapped[int] = mapped_column(Integer)
+    temporary_hp: Mapped[int] = mapped_column(Integer)
+    armor_class: Mapped[int] = mapped_column(Integer)
+    conditions: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    show_wound_state: Mapped[bool] = mapped_column(Boolean)
+    wound_override: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    version: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(String(40))
+
+
+class DiceRollRecord(Base):
+    __tablename__ = "dice_rolls"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    combat_id: Mapped[str] = mapped_column(ForeignKey("combats.id"), index=True)
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), index=True)
+    actor_id: Mapped[str] = mapped_column(String(36))
+    character_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    expression: Mapped[str] = mapped_column(String(32))
+    mode: Mapped[str] = mapped_column(String(16))
+    visibility: Mapped[str] = mapped_column(String(16))
+    recipient_player_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    values: Mapped[list[int]] = mapped_column(JSON)
+    original_result: Mapped[int] = mapped_column(Integer)
+    result: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    action_event_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(40))
+    revealed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class EventCompensationRecord(Base):
+    __tablename__ = "event_compensations"
+
+    original_event_id: Mapped[str] = mapped_column(ForeignKey("game_events.id"), primary_key=True)
+    compensation_event_id: Mapped[str] = mapped_column(ForeignKey("game_events.id"), unique=True)
+    replacement_event_id: Mapped[str | None] = mapped_column(
+        ForeignKey("game_events.id"), nullable=True
+    )
+    created_at: Mapped[str] = mapped_column(String(40))
 
 
 class ProcessedCommandRecord(Base):

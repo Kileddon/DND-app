@@ -462,6 +462,144 @@ fieldset {
   font-weight: 700;
 }
 
+.combat-panel {
+  border-top: 3px solid var(--gold);
+}
+.combat-heading,
+.combat-toolbar,
+.combat-setup,
+.journal-row,
+.hero-health,
+.player-monsters > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.combat-heading h2 {
+  margin: 0.2rem 0 0;
+}
+.current-turn {
+  display: grid;
+  text-align: right;
+}
+.current-turn span,
+.initiative small,
+.target small,
+.journal-row small,
+.hero-health small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.combat-toolbar {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.combat-toolbar input {
+  max-width: 180px;
+}
+.combat-setup {
+  align-items: stretch;
+  flex-direction: column;
+  padding: 0.8rem;
+  background: #151821;
+  border-radius: 10px;
+}
+.combat-monster-form {
+  grid-template-columns: 2fr 1fr 1fr auto;
+}
+.initiative-list,
+.target-grid,
+.combat-journal,
+.player-monsters {
+  display: grid;
+  gap: 0.5rem;
+}
+.initiative {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.initiative.active {
+  border-color: var(--gold);
+  background: rgba(221, 177, 92, 0.08);
+}
+.initiative-score {
+  min-width: 2.5rem;
+  color: var(--gold);
+  font-weight: 800;
+  text-align: center;
+}
+.initiative div,
+.target span,
+.journal-row span {
+  display: grid;
+}
+.initiative-actions {
+  display: flex !important;
+  flex-direction: row;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+.initiative-actions button {
+  padding: 0.4rem 0.55rem;
+}
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.journal-actions {
+  display: flex !important;
+  grid-auto-flow: column;
+  gap: 0.4rem;
+}
+.combat-report pre {
+  max-height: 280px;
+  overflow: auto;
+  padding: 0.8rem;
+  background: #11141b;
+  border-radius: 9px;
+  color: var(--muted);
+}
+.target-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.target {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+}
+.target.selected {
+  border-color: var(--gold);
+}
+.journal-row,
+.player-monsters > div,
+.hero-health {
+  padding: 0.65rem;
+  background: #151821;
+  border-radius: 9px;
+}
+.hero-health {
+  align-items: flex-start;
+  flex-direction: column;
+}
+.hero-health span {
+  color: var(--gold);
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+.player-monsters > div span {
+  color: var(--gold);
+}
+
 @media (max-width: 700px) {
   .dashboard-grid,
   .player-grid {
@@ -487,6 +625,17 @@ fieldset {
   }
   .ability-grid {
     grid-template-columns: 1fr;
+  }
+  .combat-monster-form,
+  .target-grid {
+    grid-template-columns: 1fr;
+  }
+  .combat-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .current-turn {
+    text-align: left;
   }
   .ability-card {
     min-height: 132px;

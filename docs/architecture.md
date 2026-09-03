@@ -108,6 +108,14 @@ uptime и версии. Последние ошибки — bounded список
 
 ## Архитектурные решения
 
+## Боевой контур
+
+`Combat` управляет lifecycle, раундом и инициативой; `Combatant` инкапсулирует HP, временные HP, состояния и словесную категорию ранения; `DiceRoll` хранит исходный и скорректированный результат. Группа монстров — одна initiative entry со ссылками на несколько независимых combatants.
+
+Бой использует ту же транзакционную модель command/state/event, что и остальная система. Отмена не удаляет и не меняет исходную запись журнала: фактические дельты обращаются новым событием. Итоговый отчёт сворачивает `report_delta` исходных и компенсирующих событий. HTTP snapshot, WebSocket broadcast и cursor replay проходят через одну role-aware проекцию видимости.
+
+Подробности решения: [ADR-0006](adr/0006-combat-state-and-compensation.md).
+
 - [ADR-0001: локальное состояние и журнал событий](adr/0001-local-state-and-event-log.md)
 - [ADR-0002: pairing и device credentials](adr/0002-local-pairing-and-device-credentials.md)
 - [ADR-0003: realtime cursor/snapshot/replay](adr/0003-realtime-cursor-snapshot-replay.md)

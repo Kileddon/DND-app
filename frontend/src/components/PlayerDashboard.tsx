@@ -7,6 +7,7 @@ import {
   type CharacterSummary,
   type Snapshot,
 } from "../api";
+import { PlayerCombatPanel } from "./CombatPanel";
 import { ErrorNotice } from "./ErrorNotice";
 
 export function PlayerDashboard({
@@ -126,6 +127,8 @@ export function PlayerDashboard({
         </div>
       </header>
       <ErrorNotice error={error} />
+
+      <PlayerCombatPanel snapshot={snapshot} refresh={refresh} />
 
       {!player.selected_character_id && !draft && (
         <section className="card stack">

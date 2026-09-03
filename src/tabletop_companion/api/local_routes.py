@@ -51,6 +51,7 @@ from tabletop_companion.api.schemas import (
     SnapshotView,
     StartCharacterDraftRequest,
 )
+from tabletop_companion.application.combat_service import CombatService
 from tabletop_companion.application.commands import (
     AddInventoryItemCommand,
     ChooseAbilityCardCommand,
@@ -178,9 +179,11 @@ def register_local_routes(
     settings: Settings,
     started_at: float,
     safe_errors: SafeErrorLog,
+    combat_service: CombatService,
 ) -> None:
     async def snapshot_with_presence(current: LocalDevice) -> dict[str, Any]:
         data = local_service.snapshot(current)
+        data["combat"] = combat_service.snapshot(current)
         presence = await hub.device_presence(current.room_id)
         devices = data.get("devices", [])
         if isinstance(devices, list):
@@ -809,7 +812,9 @@ def register_local_routes(
                 connection.last_cursor = int(snapshot_data["cursor"])
             else:
                 for event in local_service.replay_events(device, cursor):
-                    await websocket.send_json(serialize_event(event))
+                    await websocket.send_json(
+                        serialize_event(combat_service.project_event(event, device))
+                    )
                     connection.last_cursor = max(connection.last_cursor, event.cursor or 0)
             connection.reconnecting = False
             await _realtime_loop(connection)

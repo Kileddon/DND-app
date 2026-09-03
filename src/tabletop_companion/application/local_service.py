@@ -666,7 +666,11 @@ class LocalMultiplayerService:
             events = uow.list_events_after(principal.room_id, cursor, limit)
             if principal.role is DeviceRole.GM:
                 return events
-            return [event for event in events if event.visibility == "room"]
+            return [
+                event
+                for event in events
+                if event.visibility in {"room", f"player:{principal.player_id}"}
+            ]
 
     def cursor_bounds(self, room_id: str) -> tuple[int | None, int]:
         with self._uow_factory() as uow:

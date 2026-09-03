@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import defaultdict, deque
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -65,13 +66,19 @@ class LiveConnection:
 
 class EventHub:
     def __init__(
-        self, *, room_limit: int = 60, device_limit: int = 3, queue_size: int = 128
+        self,
+        *,
+        room_limit: int = 60,
+        device_limit: int = 3,
+        queue_size: int = 128,
+        projector: Callable[[DomainEvent, LocalDevice], DomainEvent] | None = None,
     ) -> None:
         self._room_limit = room_limit
         self._device_limit = device_limit
         self._queue_size = queue_size
         self._connections: set[LiveConnection] = set()
         self._lock = asyncio.Lock()
+        self._projector = projector or (lambda event, _device: event)
 
     async def connect(
         self, websocket: WebSocket, device: LocalDevice, *, last_cursor: int
@@ -117,12 +124,15 @@ class EventHub:
             connections = tuple(self._connections)
         overflowed: list[LiveConnection] = []
         for event in events:
-            envelope = serialize_event(event)
             for connection in connections:
                 if connection.device.room_id != event.room_id:
                     continue
-                if event.visibility == "gm" and connection.device.role is not DeviceRole.GM:
+                if connection.device.role is not DeviceRole.GM and event.visibility not in {
+                    "room",
+                    f"player:{connection.device.player_id}",
+                }:
                     continue
+                envelope = serialize_event(self._projector(event, connection.device))
                 try:
                     connection.queue.put_nowait(envelope)
                 except asyncio.QueueFull:

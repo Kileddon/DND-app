@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api, type Diagnostics, type GameSession, type Snapshot } from "../api";
+import { HostCombatPanel } from "./CombatPanel";
 import { ErrorNotice } from "./ErrorNotice";
 
 interface PairingInfo {
@@ -110,6 +111,10 @@ export function HostDashboard({
       </header>
       <ErrorNotice error={error} />
       <div className="dashboard-grid">
+        {snapshot.session &&
+          ["ACTIVE", "PAUSED"].includes(snapshot.session.status) && (
+            <HostCombatPanel snapshot={snapshot} refresh={refresh} />
+          )}
         <section className="card stack">
           <div className="section-heading">
             <div>

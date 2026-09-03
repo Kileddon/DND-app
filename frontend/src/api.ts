@@ -35,6 +35,79 @@ export interface GameSession {
   version: number;
 }
 
+export interface CombatCondition {
+  id: string;
+  name: string;
+  description: string;
+  visible_to_players: boolean;
+}
+
+export interface Combatant {
+  id: string;
+  entry_id: string;
+  kind: "character" | "monster";
+  reference_id: string | null;
+  name: string;
+  version: number;
+  max_hp?: number;
+  current_hp?: number;
+  temporary_hp?: number;
+  armor_class?: number;
+  wound_state?: string | null;
+  conditions: CombatCondition[];
+}
+
+export interface InitiativeEntry {
+  id: string;
+  name: string;
+  initiative: number;
+  position: number;
+  combatant_ids: string[];
+}
+
+export interface CombatEvent {
+  id: string;
+  event_type: string;
+  occurred_at: string;
+  payload: Record<string, unknown>;
+}
+
+export interface DiceRoll {
+  id: string;
+  actor_id: string;
+  expression: string;
+  result: number;
+  original_result: number;
+  visibility: "public" | "private" | "secret" | "delayed";
+  reason: string | null;
+}
+
+export interface MonsterTemplate {
+  id: string;
+  name: string;
+  max_hp: number;
+  current_hp: number;
+  armor_class: number;
+  conditions: string[];
+  actions: string[];
+}
+
+export interface CombatState {
+  id: string;
+  room_id: string;
+  session_id: string;
+  status: "PREPARATION" | "ACTIVE" | "PAUSED" | "COMPLETED";
+  round_number: number;
+  current_entry_id: string | null;
+  version: number;
+  entries: InitiativeEntry[];
+  combatants: Combatant[];
+  monster_templates: MonsterTemplate[];
+  rolls: DiceRoll[];
+  journal: CombatEvent[];
+  report: Record<string, unknown> | null;
+}
+
 export interface AbilityCard {
   id: string;
   name: string;
@@ -88,6 +161,7 @@ export interface Snapshot {
   devices?: Device[];
   player?: Player | null;
   characters?: CharacterSummary[];
+  combat?: CombatState | null;
 }
 
 export interface Diagnostics {
@@ -376,6 +450,250 @@ export const api = {
           actor_id: playerId,
           quantity: 1,
           expected_version: character.version,
+        }),
+      },
+    ),
+  createCombat: (roomId: string, sessionId: string, deviceId: string) =>
+    request<CommandResponse<CombatState>>(
+      `/api/v2/rooms/${roomId}/sessions/${sessionId}/combats`,
+      { method: "POST", body: JSON.stringify(commandMeta(deviceId)) },
+    ),
+  addCombatCharacter: (
+    combat: CombatState,
+    characterId: string,
+    deviceId: string,
+    lateJoin = false,
+  ) =>
+    request<CommandResponse<CombatState>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/characters`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          expected_version: combat.version,
+          character_id: characterId,
+          initiative: 10,
+          max_hp: 20,
+          current_hp: 20,
+          armor_class: 10,
+          late_join: lateJoin,
+        }),
+      },
+    ),
+  createMonsterTemplate: (
+    roomId: string,
+    deviceId: string,
+    input: { name: string; hp: number; armorClass: number },
+  ) =>
+    request<CommandResponse<MonsterTemplate>>(
+      `/api/v2/rooms/${roomId}/monster-templates`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          name: input.name,
+          image_url: null,
+          max_hp: input.hp,
+          current_hp: input.hp,
+          armor_class: input.armorClass,
+          notes: "",
+          conditions: [],
+          actions: [],
+        }),
+      },
+    ),
+  addMonsters: (
+    combat: CombatState,
+    templateId: string,
+    deviceId: string,
+    count = 1,
+  ) =>
+    request<CommandResponse<CombatState>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/monsters`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          expected_version: combat.version,
+          template_id: templateId,
+          initiative: 8,
+          count,
+          grouped: count > 1,
+        }),
+      },
+    ),
+  removeCombatEntry: (combat: CombatState, entryId: string, deviceId: string) =>
+    request<CommandResponse<CombatState>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/entries/${entryId}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          expected_version: combat.version,
+        }),
+      },
+    ),
+  reorderCombat: (combat: CombatState, entryIds: string[], deviceId: string) =>
+    request<CommandResponse<CombatState>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/reorder`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          expected_version: combat.version,
+          entry_ids: entryIds,
+        }),
+      },
+    ),
+  transitionCombat: (
+    combat: CombatState,
+    deviceId: string,
+    action: "start" | "pause" | "resume" | "complete",
+  ) =>
+    request<CommandResponse<CombatState>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/transition`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          expected_version: combat.version,
+          action,
+        }),
+      },
+    ),
+  moveTurn: (combat: CombatState, deviceId: string, direction: -1 | 1) =>
+    request<CommandResponse<CombatState>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/turn`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          expected_version: combat.version,
+          direction,
+        }),
+      },
+    ),
+  applyHealth: (
+    combat: CombatState,
+    deviceId: string,
+    targetIds: string[],
+    action: "damage" | "healing" | "temporary_hp" | "prevention",
+    amount: number,
+    critical = false,
+  ) =>
+    request<CommandResponse<{ event_id: string }>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/health`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          source_id: null,
+          targets: targetIds.map((id) => ({
+            target_id: id,
+            expected_version: combat.combatants.find((item) => item.id === id)!
+              .version,
+          })),
+          action,
+          amount,
+          prevented: 0,
+          critical,
+          roll_id: null,
+        }),
+      },
+    ),
+  addCondition: (
+    combat: CombatState,
+    target: Combatant,
+    deviceId: string,
+    name: string,
+  ) =>
+    request<CommandResponse<Combatant>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/combatants/${target.id}/conditions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          expected_version: target.version,
+          catalog_id: null,
+          name,
+          description: "",
+          source_id: null,
+          visible_to_players: true,
+        }),
+      },
+    ),
+  rollCombat: (
+    combat: CombatState,
+    deviceId: string,
+    actorIds: string[],
+    expression: string,
+    visibility: DiceRoll["visibility"] = "public",
+  ) =>
+    request<CommandResponse<{ rolls: DiceRoll[] }>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/rolls`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          actor_ids: actorIds,
+          expression,
+          mode: "digital",
+          visibility,
+          recipient_player_id: null,
+          physical_result: null,
+          action_event_id: null,
+        }),
+      },
+    ),
+  support: (
+    combat: CombatState,
+    deviceId: string,
+    characterId: string,
+    description: string,
+  ) =>
+    request<CommandResponse<{ event_id: string }>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/support`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          character_id: characterId,
+          description,
+          roll_id: null,
+        }),
+      },
+    ),
+  cancelCombatEvent: (combat: CombatState, deviceId: string, eventId: string) =>
+    request<CommandResponse<Record<string, unknown>>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/events/${eventId}/cancel`,
+      { method: "POST", body: JSON.stringify(commandMeta(deviceId)) },
+    ),
+  correctCombatEvent: (
+    combat: CombatState,
+    deviceId: string,
+    eventId: string,
+    targetIds: string[],
+    action: "damage" | "healing" | "temporary_hp" | "prevention",
+    amount: number,
+    critical = false,
+  ) =>
+    request<CommandResponse<Record<string, unknown>>>(
+      `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/events/${eventId}/correct`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          source_id: null,
+          targets: targetIds.map((id) => ({
+            target_id: id,
+            expected_version: combat.combatants.find((item) => item.id === id)!
+              .version,
+          })),
+          action,
+          amount,
+          prevented: 0,
+          critical,
+          roll_id: null,
         }),
       },
     ),

@@ -23,6 +23,7 @@ STATUS_BY_CODE = {
     "draft_incomplete": 409,
     "item_equipped": 409,
     "idempotency_conflict": 409,
+    "event_already_compensated": 409,
     "authentication_required": 401,
     "rate_limit_exceeded": 429,
     "unsupported_event_version": 422,

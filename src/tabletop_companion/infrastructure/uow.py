@@ -16,6 +16,19 @@ from tabletop_companion.domain.access import (
     PairingInvitation,
     RoomInvitation,
 )
+from tabletop_companion.domain.combat import (
+    Combat,
+    Combatant,
+    CombatantKind,
+    CombatCondition,
+    CombatStatus,
+    DiceRoll,
+    EventCompensation,
+    InitiativeEntry,
+    MonsterTemplate,
+    RollMode,
+    RollVisibility,
+)
 from tabletop_companion.domain.errors import (
     EntityNotFoundError,
     InfrastructureError,
@@ -36,6 +49,10 @@ from tabletop_companion.domain.sessions import GameSession, SessionStatus
 from tabletop_companion.infrastructure.tables import (
     CharacterDraftRecord,
     CharacterRecord,
+    CombatantRecord,
+    CombatRecord,
+    DiceRollRecord,
+    EventCompensationRecord,
     EventCursorRecord,
     GameEventRecord,
     GameSessionRecord,
@@ -43,6 +60,7 @@ from tabletop_companion.infrastructure.tables import (
     ItemDefinitionRecord,
     LocalDeviceRecord,
     LocalPlayerRecord,
+    MonsterTemplateRecord,
     PairingInvitationRecord,
     ProcessedCommandRecord,
     RoomInvitationRecord,
@@ -563,6 +581,186 @@ class SqlAlchemyUnitOfWork:
                 item_record.equipped = item.equipped
                 item_record.charges = item.charges
 
+    def add_combat(self, combat: Combat) -> None:
+        self._session.add(self._combat_record(combat))
+        self._flush_parent("combat")
+
+    def get_combat(self, combat_id: str) -> Combat:
+        record = self._session.get(CombatRecord, combat_id)
+        if record is None:
+            raise EntityNotFoundError("Combat was not found.", details={"combat_id": combat_id})
+        return self._combat(record)
+
+    def get_active_combat(self, session_id: str) -> Combat | None:
+        record = self._session.scalar(
+            select(CombatRecord).where(
+                CombatRecord.session_id == session_id,
+                CombatRecord.status != CombatStatus.COMPLETED.value,
+            )
+        )
+        return self._combat(record) if record else None
+
+    def list_combats(self, session_id: str) -> list[Combat]:
+        records = self._session.scalars(
+            select(CombatRecord)
+            .where(CombatRecord.session_id == session_id)
+            .order_by(CombatRecord.created_at, CombatRecord.id)
+        ).all()
+        return [self._combat(record) for record in records]
+
+    def save_combat(self, combat: Combat) -> None:
+        updated_id = self._session.scalar(
+            update(CombatRecord)
+            .where(CombatRecord.id == combat.id, CombatRecord.version == combat.version - 1)
+            .values(
+                status=combat.status.value,
+                round_number=combat.round_number,
+                current_entry_id=combat.current_entry_id,
+                entries=self._entries_data(combat.entries),
+                version=combat.version,
+                updated_at=combat.updated_at.isoformat(),
+                started_at=combat.started_at.isoformat() if combat.started_at else None,
+                completed_at=combat.completed_at.isoformat() if combat.completed_at else None,
+            )
+            .returning(CombatRecord.id)
+        )
+        if updated_id is None:
+            raise StateConflictError("Combat changed concurrently.")
+
+    def add_monster_template(self, template: MonsterTemplate) -> None:
+        self._session.add(
+            MonsterTemplateRecord(
+                id=template.id,
+                room_id=template.room_id,
+                name=template.name,
+                image_url=template.image_url,
+                max_hp=template.max_hp,
+                current_hp=template.current_hp,
+                armor_class=template.armor_class,
+                notes=template.notes,
+                conditions=list(template.conditions),
+                actions=list(template.actions),
+                created_at=template.created_at.isoformat(),
+            )
+        )
+
+    def get_monster_template(self, template_id: str) -> MonsterTemplate:
+        record = self._session.get(MonsterTemplateRecord, template_id)
+        if record is None:
+            raise EntityNotFoundError("Monster template was not found.")
+        return self._monster_template(record)
+
+    def list_monster_templates(self, room_id: str) -> list[MonsterTemplate]:
+        records = self._session.scalars(
+            select(MonsterTemplateRecord)
+            .where(MonsterTemplateRecord.room_id == room_id)
+            .order_by(MonsterTemplateRecord.created_at, MonsterTemplateRecord.id)
+        ).all()
+        return [self._monster_template(record) for record in records]
+
+    def add_combatant(self, combatant: Combatant) -> None:
+        self._session.add(self._combatant_record(combatant))
+
+    def get_combatant(self, combatant_id: str) -> Combatant:
+        record = self._session.get(CombatantRecord, combatant_id)
+        if record is None:
+            raise EntityNotFoundError("Combatant was not found.")
+        return self._combatant(record)
+
+    def list_combatants(self, combat_id: str) -> list[Combatant]:
+        records = self._session.scalars(
+            select(CombatantRecord)
+            .where(CombatantRecord.combat_id == combat_id)
+            .order_by(CombatantRecord.created_at, CombatantRecord.id)
+        ).all()
+        return [self._combatant(record) for record in records]
+
+    def save_combatant(self, combatant: Combatant) -> None:
+        updated_id = self._session.scalar(
+            update(CombatantRecord)
+            .where(
+                CombatantRecord.id == combatant.id,
+                CombatantRecord.version == combatant.version - 1,
+            )
+            .values(
+                current_hp=combatant.current_hp,
+                temporary_hp=combatant.temporary_hp,
+                conditions=[self._condition_data(item) for item in combatant.conditions],
+                show_wound_state=combatant.show_wound_state,
+                wound_override=combatant.wound_override,
+                version=combatant.version,
+            )
+            .returning(CombatantRecord.id)
+        )
+        if updated_id is None:
+            raise StateConflictError("Combatant changed concurrently.")
+
+    def delete_combatants_for_entry(self, combat_id: str, entry_id: str) -> None:
+        self._session.execute(
+            delete(CombatantRecord).where(
+                CombatantRecord.combat_id == combat_id,
+                CombatantRecord.entry_id == entry_id,
+            )
+        )
+
+    def add_dice_roll(self, roll: DiceRoll) -> None:
+        self._session.add(self._dice_roll_record(roll))
+
+    def get_dice_roll(self, roll_id: str) -> DiceRoll:
+        record = self._session.get(DiceRollRecord, roll_id)
+        if record is None:
+            raise EntityNotFoundError("Dice roll was not found.")
+        return self._dice_roll(record)
+
+    def save_dice_roll(self, roll: DiceRoll) -> None:
+        record = self._session.get(DiceRollRecord, roll.id)
+        if record is None:
+            raise EntityNotFoundError("Dice roll was not found.")
+        record.visibility = roll.visibility.value
+        record.result = roll.result
+        record.reason = roll.reason
+        record.revealed_at = roll.revealed_at.isoformat() if roll.revealed_at else None
+
+    def list_dice_rolls(self, combat_id: str) -> list[DiceRoll]:
+        records = self._session.scalars(
+            select(DiceRollRecord)
+            .where(DiceRollRecord.combat_id == combat_id)
+            .order_by(DiceRollRecord.created_at, DiceRollRecord.id)
+        ).all()
+        return [self._dice_roll(record) for record in records]
+
+    def get_event(self, event_id: str) -> DomainEvent:
+        record = self._session.get(GameEventRecord, event_id)
+        if record is None:
+            raise EntityNotFoundError("Game event was not found.")
+        return self._event(record)
+
+    def add_event_compensation(self, compensation: EventCompensation) -> None:
+        try:
+            self._session.flush()
+        except SQLAlchemyError as error:
+            self._session.rollback()
+            raise InfrastructureError("Could not persist compensation events.") from error
+        self._session.add(
+            EventCompensationRecord(
+                original_event_id=compensation.original_event_id,
+                compensation_event_id=compensation.compensation_event_id,
+                replacement_event_id=compensation.replacement_event_id,
+                created_at=compensation.created_at.isoformat(),
+            )
+        )
+
+    def get_event_compensation(self, event_id: str) -> EventCompensation | None:
+        record = self._session.get(EventCompensationRecord, event_id)
+        if record is None:
+            return None
+        return EventCompensation(
+            original_event_id=record.original_event_id,
+            compensation_event_id=record.compensation_event_id,
+            replacement_event_id=record.replacement_event_id,
+            created_at=datetime.fromisoformat(record.created_at),
+        )
+
     def add_event(self, event: DomainEvent) -> DomainEvent:
         try:
             self._session.flush()
@@ -757,6 +955,183 @@ class SqlAlchemyUnitOfWork:
             completed_at=(
                 datetime.fromisoformat(record.completed_at) if record.completed_at else None
             ),
+        )
+
+    @staticmethod
+    def _entries_data(entries: list[InitiativeEntry]) -> list[dict[str, object]]:
+        return [
+            {
+                "id": item.id,
+                "name": item.name,
+                "initiative": item.initiative,
+                "position": item.position,
+                "combatant_ids": list(item.combatant_ids),
+            }
+            for item in entries
+        ]
+
+    @classmethod
+    def _combat_record(cls, combat: Combat) -> CombatRecord:
+        return CombatRecord(
+            id=combat.id,
+            room_id=combat.room_id,
+            session_id=combat.session_id,
+            status=combat.status.value,
+            round_number=combat.round_number,
+            current_entry_id=combat.current_entry_id,
+            entries=cls._entries_data(combat.entries),
+            version=combat.version,
+            created_at=combat.created_at.isoformat(),
+            updated_at=combat.updated_at.isoformat(),
+            started_at=combat.started_at.isoformat() if combat.started_at else None,
+            completed_at=combat.completed_at.isoformat() if combat.completed_at else None,
+        )
+
+    @staticmethod
+    def _combat(record: CombatRecord) -> Combat:
+        return Combat(
+            id=record.id,
+            room_id=record.room_id,
+            session_id=record.session_id,
+            status=CombatStatus(record.status),
+            round_number=record.round_number,
+            current_entry_id=record.current_entry_id,
+            entries=[
+                InitiativeEntry(
+                    id=str(item["id"]),
+                    name=str(item["name"]),
+                    initiative=int(item["initiative"]),
+                    position=int(item["position"]),
+                    combatant_ids=tuple(str(value) for value in item["combatant_ids"]),
+                )
+                for item in record.entries
+            ],
+            version=record.version,
+            created_at=datetime.fromisoformat(record.created_at),
+            updated_at=datetime.fromisoformat(record.updated_at),
+            started_at=datetime.fromisoformat(record.started_at) if record.started_at else None,
+            completed_at=(
+                datetime.fromisoformat(record.completed_at) if record.completed_at else None
+            ),
+        )
+
+    @staticmethod
+    def _monster_template(record: MonsterTemplateRecord) -> MonsterTemplate:
+        return MonsterTemplate(
+            id=record.id,
+            room_id=record.room_id,
+            name=record.name,
+            image_url=record.image_url,
+            max_hp=record.max_hp,
+            current_hp=record.current_hp,
+            armor_class=record.armor_class,
+            notes=record.notes,
+            conditions=tuple(record.conditions),
+            actions=tuple(record.actions),
+            created_at=datetime.fromisoformat(record.created_at),
+        )
+
+    @staticmethod
+    def _condition_data(condition: CombatCondition) -> dict[str, object]:
+        return {
+            "id": condition.id,
+            "name": condition.name,
+            "description": condition.description,
+            "source_id": condition.source_id,
+            "visible_to_players": condition.visible_to_players,
+            "created_at": condition.created_at.isoformat(),
+        }
+
+    @classmethod
+    def _combatant_record(cls, combatant: Combatant) -> CombatantRecord:
+        return CombatantRecord(
+            id=combatant.id,
+            combat_id=combatant.combat_id,
+            entry_id=combatant.entry_id,
+            kind=combatant.kind.value,
+            reference_id=combatant.reference_id,
+            name=combatant.name,
+            max_hp=combatant.max_hp,
+            current_hp=combatant.current_hp,
+            temporary_hp=combatant.temporary_hp,
+            armor_class=combatant.armor_class,
+            conditions=[cls._condition_data(item) for item in combatant.conditions],
+            show_wound_state=combatant.show_wound_state,
+            wound_override=combatant.wound_override,
+            version=combatant.version,
+            created_at=combatant.created_at.isoformat(),
+        )
+
+    @staticmethod
+    def _combatant(record: CombatantRecord) -> Combatant:
+        return Combatant(
+            id=record.id,
+            combat_id=record.combat_id,
+            entry_id=record.entry_id,
+            kind=CombatantKind(record.kind),
+            reference_id=record.reference_id,
+            name=record.name,
+            max_hp=record.max_hp,
+            current_hp=record.current_hp,
+            temporary_hp=record.temporary_hp,
+            armor_class=record.armor_class,
+            conditions=[
+                CombatCondition(
+                    id=str(item["id"]),
+                    name=str(item["name"]),
+                    description=str(item["description"]),
+                    source_id=str(item["source_id"]) if item.get("source_id") else None,
+                    visible_to_players=bool(item["visible_to_players"]),
+                    created_at=datetime.fromisoformat(str(item["created_at"])),
+                )
+                for item in record.conditions
+            ],
+            show_wound_state=record.show_wound_state,
+            wound_override=record.wound_override,
+            version=record.version,
+            created_at=datetime.fromisoformat(record.created_at),
+        )
+
+    @staticmethod
+    def _dice_roll_record(roll: DiceRoll) -> DiceRollRecord:
+        return DiceRollRecord(
+            id=roll.id,
+            combat_id=roll.combat_id,
+            room_id=roll.room_id,
+            actor_id=roll.actor_id,
+            character_id=roll.character_id,
+            expression=roll.expression,
+            mode=roll.mode.value,
+            visibility=roll.visibility.value,
+            recipient_player_id=roll.recipient_player_id,
+            values=list(roll.values),
+            original_result=roll.original_result,
+            result=roll.result,
+            reason=roll.reason,
+            action_event_id=roll.action_event_id,
+            created_at=roll.created_at.isoformat(),
+            revealed_at=roll.revealed_at.isoformat() if roll.revealed_at else None,
+        )
+
+    @staticmethod
+    def _dice_roll(record: DiceRollRecord) -> DiceRoll:
+        return DiceRoll(
+            id=record.id,
+            combat_id=record.combat_id,
+            room_id=record.room_id,
+            actor_id=record.actor_id,
+            character_id=record.character_id,
+            expression=record.expression,
+            mode=RollMode(record.mode),
+            visibility=RollVisibility(record.visibility),
+            recipient_player_id=record.recipient_player_id,
+            values=tuple(record.values),
+            original_result=record.original_result,
+            result=record.result,
+            reason=record.reason,
+            action_event_id=record.action_event_id,
+            created_at=datetime.fromisoformat(record.created_at),
+            revealed_at=datetime.fromisoformat(record.revealed_at) if record.revealed_at else None,
         )
 
     @staticmethod

@@ -2,7 +2,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, api, type Character, type Snapshot } from "./api";
+import {
+  ApiError,
+  api,
+  type Character,
+  type CombatState,
+  type Snapshot,
+} from "./api";
+import { HostCombatPanel, PlayerCombatPanel } from "./components/CombatPanel";
 import { ConnectionBadge } from "./components/ConnectionBadge";
 import { WelcomeScreen } from "./components/EntryScreens";
 import { ErrorNotice } from "./components/ErrorNotice";
@@ -51,6 +58,60 @@ const playerSnapshot: Snapshot = {
     version: 2,
   },
   characters: [{ id: "character", name: "Aria", version: 2, selected: true }],
+};
+
+const combat: CombatState = {
+  id: "combat",
+  room_id: "room",
+  session_id: "session",
+  status: "ACTIVE",
+  round_number: 2,
+  current_entry_id: "monster-entry",
+  version: 4,
+  entries: [
+    {
+      id: "monster-entry",
+      name: "Гоблины",
+      initiative: 12,
+      position: 0,
+      combatant_ids: ["goblin"],
+    },
+  ],
+  combatants: [
+    {
+      id: "hero-combatant",
+      entry_id: "hero-entry",
+      kind: "character",
+      reference_id: "character",
+      name: "Aria",
+      version: 2,
+      max_hp: 20,
+      current_hp: 15,
+      temporary_hp: 3,
+      conditions: [],
+    },
+    {
+      id: "goblin",
+      entry_id: "monster-entry",
+      kind: "monster",
+      reference_id: "template",
+      name: "Гоблин 1",
+      version: 2,
+      wound_state: "ранен",
+      conditions: [],
+    },
+  ],
+  monster_templates: [],
+  rolls: [],
+  journal: [
+    {
+      id: "health-event",
+      event_type: "HealthChanged",
+      occurred_at: "2026-09-03T10:00:00Z",
+      payload: {},
+    },
+  ],
+  report: null,
 };
 
 afterEach(() => vi.restoreAllMocks());
@@ -142,5 +203,44 @@ describe("local multiplayer interface", () => {
       screen.getByRole("button", { name: /начать простой конструктор/i }),
     );
     expect(await screen.findByText("Swift")).toBeInTheDocument();
+  });
+
+  it("lets the GM resolve damage against selected combatants", async () => {
+    vi.spyOn(api, "applyHealth").mockResolvedValue({
+      data: { event_id: "event" },
+      meta: { replayed: false },
+    });
+    render(
+      <HostCombatPanel
+        snapshot={{ ...gmSnapshot, combat }}
+        refresh={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByText("Гоблин 1"));
+    await userEvent.clear(screen.getByLabelText("Величина эффекта"));
+    await userEvent.type(screen.getByLabelText("Величина эффекта"), "4");
+    await userEvent.click(screen.getByRole("button", { name: "Урон" }));
+    await waitFor(() =>
+      expect(api.applyHealth).toHaveBeenCalledWith(
+        combat,
+        "gm-device",
+        ["goblin"],
+        "damage",
+        4,
+        false,
+      ),
+    );
+  });
+
+  it("shows a player exact own HP but only a monster wound category", () => {
+    render(
+      <PlayerCombatPanel
+        snapshot={{ ...playerSnapshot, combat }}
+        refresh={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("15/20 HP + 3 временных")).toBeInTheDocument();
+    expect(screen.getByText("ранен")).toBeInTheDocument();
+    expect(screen.queryByText("?/ ? HP")).not.toBeInTheDocument();
   });
 });

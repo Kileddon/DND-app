@@ -40,6 +40,39 @@ test("GM and player complete the local multiplayer slice", async ({
   await page.getByRole("button", { name: "Начать игру" }).click();
   await expect(player.getByText("ACTIVE")).toBeVisible();
 
+  await page.getByRole("button", { name: "Создать бой" }).click();
+  await expect(page.getByRole("heading", { name: "Раунд 0" })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Добавить выбранных персонажей" })
+    .click();
+  await expect(
+    page.locator(".initiative-list").getByText("Aria", { exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Имя монстра").fill("Гоблин");
+  await page.getByLabel("HP монстра").fill("10");
+  await page.getByLabel("Количество монстров").fill("2");
+  await page.getByRole("button", { name: "Добавить монстров" }).click();
+  await expect(page.getByText("Группа: 2")).toBeVisible();
+  await page.getByRole("button", { name: "Начать бой" }).click();
+  await expect(player.getByRole("heading", { name: "Раунд 1" })).toBeVisible();
+
+  await page.locator(".target").filter({ hasText: "Гоблин 1" }).click();
+  await page.getByLabel("Величина эффекта").fill("6");
+  await page.getByRole("button", { name: "Урон" }).click();
+  await expect(
+    player.getByText("ранен", { exact: true }).first(),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Следующий ход" }).click();
+  await player.getByLabel("Формула броска").fill("1d20+2");
+  await player.getByRole("button", { name: "Бросить" }).click();
+  await player.getByLabel("Заявка поддержки").fill("Отвлекаю второго гоблина");
+  await player.getByRole("button", { name: "Предложить поддержку" }).click();
+  await expect(page.getByText("Заявка поддержки")).toBeVisible();
+  await page.getByRole("button", { name: "Завершить бой" }).click();
+  await expect(
+    page.getByText("БОЙ · COMPLETED", { exact: true }),
+  ).toBeVisible();
+
   await player.getByLabel("Название предмета").fill("Rope");
   await player.getByRole("button", { name: "Добавить" }).click();
   await expect(player.getByText("Rope")).toBeVisible();

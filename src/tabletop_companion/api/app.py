@@ -10,10 +10,12 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from tabletop_companion.api.combat_routes import register_combat_routes
 from tabletop_companion.api.errors import register_error_handlers
 from tabletop_companion.api.local_routes import register_local_routes
 from tabletop_companion.api.routes import register_routes
 from tabletop_companion.api.runtime import EventHub, SafeErrorLog, SlidingWindowRateLimiter
+from tabletop_companion.application.combat_service import CombatService
 from tabletop_companion.application.local_service import LocalMultiplayerService
 from tabletop_companion.application.service import CompanionService
 from tabletop_companion.config import Settings
@@ -64,10 +66,12 @@ def create_app(
         digester=digester,
         password_hasher=Argon2RoomPasswordHasher(),
     )
+    combat_service = CombatService(uow_factory=uow_factory, randint=random_source.randint)
     hub = EventHub(
         room_limit=resolved_settings.websocket_room_limit,
         device_limit=resolved_settings.websocket_device_limit,
         queue_size=resolved_settings.websocket_queue_size,
+        projector=combat_service.project_event,
     )
     limiter = SlidingWindowRateLimiter()
     safe_errors = SafeErrorLog()
@@ -110,6 +114,7 @@ def create_app(
 
     register_error_handlers(app, safe_errors)
     register_routes(app, service)
+    register_combat_routes(app, combat_service, hub)
     register_local_routes(
         app,
         local_service,
@@ -119,6 +124,7 @@ def create_app(
         resolved_settings,
         time.monotonic(),
         safe_errors,
+        combat_service,
     )
     app.state.local_service = local_service
     app.state.event_hub = hub

@@ -45,11 +45,16 @@ def test_migrations_apply_to_empty_database(database_url: str) -> None:
             "room_invitations",
             "game_sessions",
             "event_cursor_sequence",
+            "combats",
+            "combatants",
+            "monster_templates",
+            "dice_rolls",
+            "event_compensations",
         } <= table_names
         with engine.connect() as connection:
             assert (
                 MigrationContext.configure(connection).get_current_revision()
-                == "0002_local_multiplayer"
+                == "0004_monster_template_conditions"
             )
     finally:
         engine.dispose()
