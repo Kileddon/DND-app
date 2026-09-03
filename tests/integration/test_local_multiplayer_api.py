@@ -108,36 +108,22 @@ def create_profile(
     return cast(dict[str, Any], result)
 
 
-def test_pairing_profile_recovery_snapshot_and_session_restart(
-    database_url: str, tmp_path: Path
-) -> None:
+def test_pairing_profile_snapshot_and_session_restart(database_url: str, tmp_path: Path) -> None:
     app_settings = settings(database_url, tmp_path)
     with TestClient(create_app(app_settings, sampler=first_cards)) as client:
         room, gm_id, gm_credential = bootstrap(client)
         first_device, first_credential = pair_device(client, room["id"], gm_id, gm_credential)
         profile_result = create_profile(client, first_device["id"], first_credential)
         player = profile_result["player"]
-        recovery_code = profile_result["recovery_code"]
-
-        second_device, second_credential = pair_device(
-            client,
-            room["id"],
-            gm_id,
-            gm_credential,
-            label="Player tablet",
-        )
-        recovered = body(
+        assert "recovery_code" not in profile_result
+        assert (
             client.post(
                 "/api/v2/me/profile/recover",
-                headers={"Authorization": f"Bearer {second_credential}"},
-                json=command(
-                    second_device["id"],
-                    player_id=player["id"],
-                    recovery_code=recovery_code,
-                ),
-            )
-        )["data"]
-        assert recovered["player"]["id"] == player["id"]
+                headers={"Authorization": f"Bearer {first_credential}"},
+                json=command(first_device["id"]),
+            ).status_code
+            == 404
+        )
 
         session = body(
             client.post(
@@ -164,7 +150,7 @@ def test_pairing_profile_recovery_snapshot_and_session_restart(
         snapshot = body(
             client.get(
                 "/api/v2/me/snapshot",
-                headers={"Authorization": f"Bearer {second_credential}"},
+                headers={"Authorization": f"Bearer {first_credential}"},
             )
         )
         serialized = str(snapshot)
@@ -172,7 +158,7 @@ def test_pairing_profile_recovery_snapshot_and_session_restart(
         assert "recovery_code_digest" not in serialized
         assert "password_hash" not in serialized
         assert snapshot["player"]["id"] == player["id"]
-        assert len(snapshot["devices"]) == 2
+        assert len(snapshot["devices"]) == 1
 
         refreshed = client.post(
             "/api/v2/me/credential/refresh",
@@ -195,7 +181,7 @@ def test_pairing_profile_recovery_snapshot_and_session_restart(
         restored = body(
             restarted.get(
                 "/api/v2/me/snapshot",
-                headers={"Authorization": f"Bearer {second_credential}"},
+                headers={"Authorization": f"Bearer {refreshed_credential}"},
             )
         )
         assert restored["session"] is None

@@ -51,7 +51,6 @@ export function HostCombatPanel({
   const [monsterHp, setMonsterHp] = useState(10);
   const [monsterCount, setMonsterCount] = useState(1);
   const [condition, setCondition] = useState("Сбит с ног");
-  const [expression, setExpression] = useState("1d20");
   const [critical, setCritical] = useState(false);
   const [pending, setPending] = useState("");
   const [error, setError] = useState<unknown>();
@@ -420,30 +419,6 @@ export function HostCombatPanel({
               Добавить состояние
             </button>
           </div>
-          <div className="combat-toolbar">
-            <input
-              aria-label="Формула броска ведущего"
-              value={expression}
-              onChange={(event) => setExpression(event.target.value)}
-            />
-            <button
-              onClick={() =>
-                run("roll", () =>
-                  api.rollCombat(
-                    combat,
-                    snapshot.current_device_id,
-                    selected.length
-                      ? selected
-                      : combat.combatants.slice(0, 1).map((item) => item.id),
-                    expression,
-                  ),
-                )
-              }
-              disabled={!combat.combatants.length}
-            >
-              Бросить
-            </button>
-          </div>
         </div>
       )}
 
@@ -559,7 +534,6 @@ export function PlayerCombatPanel({
   refresh: () => void;
 }) {
   const combat = snapshot.combat;
-  const [expression, setExpression] = useState("1d20");
   const [support, setSupport] = useState("");
   const [error, setError] = useState<unknown>();
   const own = useMemo(
@@ -610,28 +584,6 @@ export function PlayerCombatPanel({
       </div>
       {combat.status !== "COMPLETED" && rollActor && (
         <>
-          <div className="combat-toolbar">
-            <input
-              aria-label="Формула броска"
-              value={expression}
-              onChange={(event) => setExpression(event.target.value)}
-            />
-            <button
-              className="primary"
-              onClick={() =>
-                perform(() =>
-                  api.rollCombat(
-                    combat,
-                    snapshot.current_device_id,
-                    [rollActor],
-                    expression,
-                  ),
-                )
-              }
-            >
-              Бросить
-            </button>
-          </div>
           {own && (
             <form
               className="inline-form"

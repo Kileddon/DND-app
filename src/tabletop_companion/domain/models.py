@@ -42,9 +42,9 @@ class LocalPlayer:
     display_name: str
     version: int
     created_at: datetime
-    recovery_code_digest: str | None = None
     selected_character_id: str | None = None
     updated_at: datetime | None = None
+    removed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +55,9 @@ class AbilityCard:
     kind: str
     properties: tuple[str, ...] = ()
     incompatible_with: frozenset[str] = frozenset()
+    class_ids: frozenset[str] = frozenset()
+    required_stats: tuple[tuple[str, int], ...] = ()
+    required_ability_ids: frozenset[str] = frozenset()
 
 
 @dataclass(slots=True)
@@ -72,6 +75,8 @@ class CharacterDraft:
     version: int
     created_at: datetime
     updated_at: datetime
+    race_id: str = "human"
+    class_id: str = "fighter"
 
     def ensure_active(self) -> None:
         if self.status is not DraftStatus.ACTIVE:
@@ -128,6 +133,11 @@ class Character:
     version: int
     created_at: datetime
     inventory: list[InventoryItem] = field(default_factory=list)
+    race_id: str = "human"
+    class_id: str = "fighter"
+    max_hp: int = 10
+    current_hp: int = 10
+    armor_class: int = 10
 
     def ensure_version(self, expected_version: int) -> None:
         if expected_version != self.version:
@@ -135,6 +145,39 @@ class Character:
                 "Character version is stale.",
                 details={"expected_version": expected_version, "current_version": self.version},
             )
+
+    def edit(
+        self,
+        *,
+        name: str,
+        race_id: str,
+        class_id: str,
+        stats: dict[str, int],
+        ability_ids: list[str],
+        max_hp: int,
+        current_hp: int,
+        armor_class: int,
+        expected_version: int,
+    ) -> None:
+        self.ensure_version(expected_version)
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise DomainValidationError("Character name must not be blank.")
+        if max_hp <= 0 or not 0 <= current_hp <= max_hp:
+            raise DomainValidationError("Character health values are invalid.")
+        if armor_class <= 0:
+            raise DomainValidationError("Armor class must be positive.")
+        if any(not 1 <= value <= 30 for value in stats.values()):
+            raise DomainValidationError("Character attributes must be between 1 and 30.")
+        self.name = normalized_name
+        self.race_id = race_id
+        self.class_id = class_id
+        self.stats = dict(stats)
+        self.ability_ids = list(ability_ids)
+        self.max_hp = max_hp
+        self.current_hp = current_hp
+        self.armor_class = armor_class
+        self.version += 1
 
     def add_item(self, item: InventoryItem, *, expected_version: int) -> None:
         self.ensure_version(expected_version)
@@ -196,3 +239,23 @@ class Character:
             remaining_quantity=remaining,
             removed=removed,
         )
+
+
+@dataclass(slots=True)
+class GmNotes:
+    room_id: str
+    campaign: str
+    other: str
+    version: int
+    updated_at: datetime
+
+
+@dataclass(slots=True)
+class NpcNote:
+    id: str
+    room_id: str
+    name: str
+    details: str
+    version: int
+    created_at: datetime
+    updated_at: datetime

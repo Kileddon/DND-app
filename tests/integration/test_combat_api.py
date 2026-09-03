@@ -124,6 +124,12 @@ def test_combat_health_visibility_compensation_and_restart(
             ),
             201,
         )["data"]
+        character_combatant = next(
+            item for item in combat["combatants"] if item["kind"] == "character"
+        )
+        assert character_combatant["max_hp"] == character["max_hp"]
+        assert character_combatant["current_hp"] == character["current_hp"]
+        assert character_combatant["armor_class"] == character["armor_class"]
         template = body(
             client.post(
                 f"/api/v2/rooms/{room['id']}/monster-templates",

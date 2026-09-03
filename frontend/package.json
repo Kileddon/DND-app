@@ -11,7 +11,7 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
-    "e2e": "vite build && playwright test"
+    "e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/run-e2e.ps1"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

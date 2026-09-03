@@ -44,6 +44,12 @@ class RollMode(StrEnum):
     PHYSICAL = "physical"
 
 
+class RollSelection(StrEnum):
+    NEUTRAL = "neutral"
+    ADVANTAGE = "advantage"
+    DISADVANTAGE = "disadvantage"
+
+
 @dataclass(frozen=True, slots=True)
 class CombatCondition:
     id: str
@@ -421,6 +427,21 @@ class DiceExpression:
         values = tuple(randint(1, self.sides) for _ in range(self.count))
         return values, sum(values) + self.modifier
 
+    def roll_selected(
+        self, selection: RollSelection, randint: Callable[[int, int], int]
+    ) -> tuple[tuple[tuple[int, ...], ...], tuple[int, ...], int]:
+        attempt_count = 1 if selection is RollSelection.NEUTRAL else 2
+        rolled = tuple(self.roll(randint) for _ in range(attempt_count))
+        attempts = tuple(item[0] for item in rolled)
+        totals = tuple(item[1] for item in rolled)
+        if selection is RollSelection.ADVANTAGE:
+            selected = max(range(attempt_count), key=totals.__getitem__)
+        elif selection is RollSelection.DISADVANTAGE:
+            selected = min(range(attempt_count), key=totals.__getitem__)
+        else:
+            selected = 0
+        return attempts, totals, selected
+
     def normalized(self) -> str:
         modifier = f"{self.modifier:+d}" if self.modifier else ""
         return f"{self.count}d{self.sides}{modifier}"
@@ -429,7 +450,7 @@ class DiceExpression:
 @dataclass(slots=True)
 class DiceRoll:
     id: str
-    combat_id: str
+    combat_id: str | None
     room_id: str
     actor_id: str
     character_id: str | None
@@ -444,6 +465,10 @@ class DiceRoll:
     action_event_id: str | None
     created_at: datetime
     revealed_at: datetime | None = None
+    selection: RollSelection = RollSelection.NEUTRAL
+    attempts: tuple[tuple[int, ...], ...] = ()
+    attempt_totals: tuple[int, ...] = ()
+    selected_attempt: int = 0
 
     def edit(self, value: int, reason: str) -> None:
         if not reason.strip():

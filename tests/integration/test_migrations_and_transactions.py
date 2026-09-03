@@ -50,11 +50,13 @@ def test_migrations_apply_to_empty_database(database_url: str) -> None:
             "monster_templates",
             "dice_rolls",
             "event_compensations",
+            "gm_notes",
+            "npc_notes",
         } <= table_names
         with engine.connect() as connection:
             assert (
                 MigrationContext.configure(connection).get_current_revision()
-                == "0004_monster_template_conditions"
+                == "0006_dice_roll_selection"
             )
     finally:
         engine.dispose()

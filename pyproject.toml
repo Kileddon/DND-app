@@ -34,7 +34,7 @@ dev = [
 packages = ["src/tabletop_companion"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --strict-config --strict-markers"
+addopts = "-ra --strict-config --strict-markers --basetemp=.test-tmp"
 testpaths = ["tests"]
 
 [tool.ruff]

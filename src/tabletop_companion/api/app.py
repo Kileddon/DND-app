@@ -65,6 +65,7 @@ def create_app(
         ruleset=DEFAULT_RULESET,
         digester=digester,
         password_hasher=Argon2RoomPasswordHasher(),
+        randint=random_source.randint,
     )
     combat_service = CombatService(uow_factory=uow_factory, randint=random_source.randint)
     hub = EventHub(

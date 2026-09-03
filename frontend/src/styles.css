@@ -600,6 +600,104 @@ fieldset {
   color: var(--gold);
 }
 
+.dashboard-nav {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 0 1.25rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+.dashboard-nav button {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.dashboard-nav button.active,
+.character-master-list button.active,
+.npc-list button.active {
+  border-color: var(--gold);
+  color: var(--text);
+  box-shadow: inset 0 -2px var(--gold);
+}
+.choice-columns,
+.form-grid,
+.master-detail {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.form-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.option-card,
+.ability-checklist label {
+  align-items: flex-start;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: row;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  padding: 0.8rem;
+}
+.option-card span,
+.ability-checklist span,
+.character-master-list button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.vitals {
+  display: flex;
+  gap: 0.75rem;
+}
+.vitals strong {
+  background: rgba(192, 149, 75, 0.12);
+  border: 1px solid rgba(192, 149, 75, 0.35);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+.character-subtitle {
+  color: var(--muted);
+  margin-top: -0.75rem;
+}
+.character-master-list,
+.npc-list {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-right: 1rem;
+}
+.character-master-list button,
+.npc-list > button {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid transparent;
+  color: var(--text);
+  text-align: left;
+}
+.character-master-list span,
+.character-master-list small,
+.empty-detail {
+  color: var(--muted);
+}
+.ability-checklist {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+textarea {
+  min-height: 8rem;
+  resize: vertical;
+}
+.inline-actions {
+  display: flex;
+  gap: 1rem;
+}
+
 @media (max-width: 700px) {
   .dashboard-grid,
   .player-grid {
@@ -640,6 +738,20 @@ fieldset {
   .ability-card {
     min-height: 132px;
   }
+  .choice-columns,
+  .form-grid,
+  .form-grid.three,
+  .master-detail,
+  .ability-checklist {
+    grid-template-columns: 1fr;
+  }
+  .character-master-list,
+  .npc-list {
+    border-bottom: 1px solid var(--border);
+    border-right: 0;
+    padding-bottom: 1rem;
+    padding-right: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -648,5 +760,153 @@ fieldset {
   *::after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
+  }
+}
+
+.roll-selection {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0.35rem;
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--surface) 72%, black);
+}
+
+.roll-selection button.active {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface));
+}
+
+.quick-dice {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.die-button {
+  display: grid;
+  min-height: 7rem;
+  place-content: center;
+  gap: 0.25rem;
+  text-align: center;
+}
+
+.die-button span {
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 4vw, 2.5rem);
+}
+
+.custom-roll {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+}
+
+.roll-history-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.7fr) minmax(12rem, 2fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.roll-history-row > div:first-child,
+.roll-attempts,
+.animated-attempts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.roll-history-row > div:first-child {
+  flex-direction: column;
+}
+
+.roll-attempts span,
+.animated-attempts span {
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--surface) 82%, black);
+}
+
+.roll-attempts span.selected,
+.animated-attempts span.selected {
+  color: var(--ink);
+  outline: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+}
+
+.roll-total {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+}
+
+.dice-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(4 6 10 / 72%);
+  backdrop-filter: blur(5px);
+}
+
+.dice-animation-card {
+  display: grid;
+  width: min(24rem, 100%);
+  min-height: 18rem;
+  place-items: center;
+  gap: 1rem;
+  padding: 2rem;
+  text-align: center;
+  border: 1px solid var(--accent);
+  border-radius: 1.4rem;
+  background: var(--surface);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 55%);
+}
+
+.rolling-number,
+.final-number {
+  display: grid;
+  width: 7rem;
+  height: 7rem;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 3.5rem;
+  border: 2px solid var(--accent);
+  border-radius: 1.4rem;
+}
+
+.rolling-number {
+  animation: dice-pulse 180ms ease-in-out infinite alternate;
+}
+
+.final-number {
+  color: var(--accent);
+  box-shadow: 0 0 2rem color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+@keyframes dice-pulse {
+  from {
+    transform: scale(0.94) rotate(-2deg);
+  }
+  to {
+    transform: scale(1.04) rotate(2deg);
+  }
+}
+
+@media (max-width: 700px) {
+  .quick-dice {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .roll-selection,
+  .roll-history-row {
+    grid-template-columns: 1fr;
   }
 }

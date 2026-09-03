@@ -80,6 +80,13 @@ export interface DiceRoll {
   original_result: number;
   visibility: "public" | "private" | "secret" | "delayed";
   reason: string | null;
+  values: number[];
+  selection: "neutral" | "advantage" | "disadvantage";
+  attempts: number[][];
+  attempt_totals: number[];
+  selected_attempt: number;
+  created_at: string;
+  actor_name?: string;
 }
 
 export interface MonsterTemplate {
@@ -113,11 +120,31 @@ export interface AbilityCard {
   name: string;
   description: string;
   kind: string;
+  class_ids?: string[];
+  required_stats?: Record<string, number>;
+  required_ability_ids?: string[];
+}
+
+export interface CharacterOption {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface CharacterOptions {
+  races: (CharacterOption & { hp_bonus: number })[];
+  classes: (CharacterOption & {
+    base_hp: number;
+    base_armor_class: number;
+  })[];
+  abilities: AbilityCard[];
 }
 
 export interface CharacterDraft {
   id: string;
   name: string;
+  race_id: string;
+  class_id: string;
   offered_cards: AbilityCard[];
   chosen_cards: AbilityCard[];
   completed_rounds: number;
@@ -137,6 +164,11 @@ export interface InventoryItem {
 export interface Character {
   id: string;
   name: string;
+  race_id: string;
+  class_id: string;
+  max_hp: number;
+  current_hp: number;
+  armor_class: number;
   owner_id: string;
   stats: Record<string, number>;
   abilities: AbilityCard[];
@@ -149,6 +181,28 @@ export interface CharacterSummary {
   name: string;
   version: number;
   selected: boolean;
+  race_id?: string;
+  class_id?: string;
+  max_hp?: number;
+  current_hp?: number;
+  armor_class?: number;
+  owner_id?: string;
+  owner_name?: string;
+}
+
+export interface NpcNote {
+  id: string;
+  room_id: string;
+  name: string;
+  details: string;
+  version: number;
+}
+
+export interface GmNotes {
+  campaign: string;
+  other: string;
+  version: number;
+  npcs: NpcNote[];
 }
 
 export interface Snapshot {
@@ -162,6 +216,7 @@ export interface Snapshot {
   player?: Player | null;
   characters?: CharacterSummary[];
   combat?: CombatState | null;
+  dice_rolls?: DiceRoll[];
 }
 
 export interface Diagnostics {
@@ -342,26 +397,15 @@ export const api = {
     deviceId: string,
     input: { displayName: string; password?: string; invitationToken?: string },
   ) =>
-    request<
-      CommandResponse<{ player: Player; device: Device; recovery_code: string }>
-    >("/api/v2/me/profile", {
-      method: "POST",
-      body: JSON.stringify({
-        ...commandMeta(deviceId),
-        display_name: input.displayName,
-        password: input.password || null,
-        invitation_token: input.invitationToken || null,
-      }),
-    }),
-  recoverProfile: (deviceId: string, playerId: string, recoveryCode: string) =>
     request<CommandResponse<{ player: Player; device: Device }>>(
-      "/api/v2/me/profile/recover",
+      "/api/v2/me/profile",
       {
         method: "POST",
         body: JSON.stringify({
           ...commandMeta(deviceId),
-          player_id: playerId,
-          recovery_code: recoveryCode,
+          display_name: input.displayName,
+          password: input.password || null,
+          invitation_token: input.invitationToken || null,
         }),
       },
     ),
@@ -387,10 +431,22 @@ export const api = {
         }),
       },
     ),
-  startDraft: (deviceId: string, name: string) =>
+  characterOptions: () =>
+    request<CharacterOptions>("/api/v2/character-options"),
+  startDraft: (
+    deviceId: string,
+    name: string,
+    raceId: string,
+    classId: string,
+  ) =>
     request<CommandResponse<CharacterDraft>>("/api/v2/me/character-drafts", {
       method: "POST",
-      body: JSON.stringify({ ...commandMeta(deviceId), name }),
+      body: JSON.stringify({
+        ...commandMeta(deviceId),
+        name,
+        race_id: raceId,
+        class_id: classId,
+      }),
     }),
   chooseCard: (deviceId: string, draft: CharacterDraft, cardId: string) =>
     request<CommandResponse<CharacterDraft>>(
@@ -428,6 +484,109 @@ export const api = {
       },
     ),
   character: (id: string) => request<Character>(`/api/v2/characters/${id}`),
+  kickPlayer: (roomId: string, playerId: string, deviceId: string) =>
+    request<CommandResponse<{ player_id: string; device_ids: string[] }>>(
+      `/api/v2/rooms/${roomId}/players/${playerId}`,
+      { method: "DELETE", body: JSON.stringify(commandMeta(deviceId)) },
+    ),
+  updateCharacter: (roomId: string, deviceId: string, character: Character) =>
+    request<CommandResponse<Character>>(
+      `/api/v2/rooms/${roomId}/characters/${character.id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          name: character.name,
+          race_id: character.race_id,
+          class_id: character.class_id,
+          stats: character.stats,
+          ability_ids: character.abilities.map((ability) => ability.id),
+          max_hp: character.max_hp,
+          current_hp: character.current_hp,
+          armor_class: character.armor_class,
+          expected_version: character.version,
+        }),
+      },
+    ),
+  gmAddItem: (
+    roomId: string,
+    deviceId: string,
+    character: Character,
+    name: string,
+  ) =>
+    request<CommandResponse<Character>>(
+      `/api/v2/rooms/${roomId}/characters/${character.id}/inventory`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          actor_id: deviceId,
+          name,
+          quantity: 1,
+          consumable: false,
+          locked: false,
+          equipped: false,
+          charges: null,
+          expected_version: character.version,
+        }),
+      },
+    ),
+  gmDiscardItem: (
+    roomId: string,
+    deviceId: string,
+    character: Character,
+    item: InventoryItem,
+  ) =>
+    request<CommandResponse<Character>>(
+      `/api/v2/rooms/${roomId}/characters/${character.id}/inventory/${item.id}/discard`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          actor_id: deviceId,
+          quantity: item.quantity,
+          expected_version: character.version,
+        }),
+      },
+    ),
+  gmNotes: (roomId: string) =>
+    request<GmNotes>(`/api/v2/rooms/${roomId}/notes`),
+  updateGmNotes: (roomId: string, deviceId: string, notes: GmNotes) =>
+    request<CommandResponse<Omit<GmNotes, "npcs">>>(
+      `/api/v2/rooms/${roomId}/notes`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          campaign: notes.campaign,
+          other: notes.other,
+          expected_version: notes.version,
+        }),
+      },
+    ),
+  createNpcNote: (roomId: string, deviceId: string, name: string) =>
+    request<CommandResponse<NpcNote>>(`/api/v2/rooms/${roomId}/notes/npcs`, {
+      method: "POST",
+      body: JSON.stringify({ ...commandMeta(deviceId), name }),
+    }),
+  updateNpcNote: (roomId: string, deviceId: string, npc: NpcNote) =>
+    request<CommandResponse<NpcNote>>(
+      `/api/v2/rooms/${roomId}/notes/npcs/${npc.id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          name: npc.name,
+          details: npc.details,
+          expected_version: npc.version,
+        }),
+      },
+    ),
+  deleteNpcNote: (roomId: string, deviceId: string, npcId: string) =>
+    request<CommandResponse<{ npc_id: string; deleted: boolean }>>(
+      `/api/v2/rooms/${roomId}/notes/npcs/${npcId}`,
+      { method: "DELETE", body: JSON.stringify(commandMeta(deviceId)) },
+    ),
   addItem: (
     deviceId: string,
     playerId: string,
@@ -644,6 +803,7 @@ export const api = {
     actorIds: string[],
     expression: string,
     visibility: DiceRoll["visibility"] = "public",
+    selection: DiceRoll["selection"] = "neutral",
   ) =>
     request<CommandResponse<{ rolls: DiceRoll[] }>>(
       `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/rolls`,
@@ -658,6 +818,24 @@ export const api = {
           recipient_player_id: null,
           physical_result: null,
           action_event_id: null,
+          selection,
+        }),
+      },
+    ),
+  rollRoom: (
+    roomId: string,
+    deviceId: string,
+    expression: string,
+    selection: DiceRoll["selection"],
+  ) =>
+    request<CommandResponse<{ roll: DiceRoll }>>(
+      `/api/v2/rooms/${roomId}/rolls`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          expression,
+          selection,
         }),
       },
     ),

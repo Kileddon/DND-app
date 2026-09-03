@@ -4,11 +4,15 @@ import {
   api,
   type Character,
   type CharacterDraft,
+  type CharacterOptions,
   type CharacterSummary,
   type Snapshot,
 } from "../api";
 import { PlayerCombatPanel } from "./CombatPanel";
 import { ErrorNotice } from "./ErrorNotice";
+import { DicePanel } from "./DicePanel";
+
+type PlayerSection = "lobby" | "character" | "combat" | "dice";
 
 export function PlayerDashboard({
   snapshot,
@@ -18,12 +22,20 @@ export function PlayerDashboard({
   refresh: () => void;
 }) {
   const player = snapshot.player!;
+  const [section, setSection] = useState<PlayerSection>("lobby");
   const [draft, setDraft] = useState<CharacterDraft>();
   const [character, setCharacter] = useState<Character>();
+  const [options, setOptions] = useState<CharacterOptions>();
   const [name, setName] = useState("");
+  const [raceId, setRaceId] = useState("human");
+  const [classId, setClassId] = useState("fighter");
   const [itemName, setItemName] = useState("");
   const [pending, setPending] = useState("");
   const [error, setError] = useState<unknown>();
+
+  useEffect(() => {
+    api.characterOptions().then(setOptions).catch(setError);
+  }, []);
 
   useEffect(() => {
     if (player.selected_character_id) {
@@ -34,10 +46,7 @@ export function PlayerDashboard({
     }
   }, [player.selected_character_id, snapshot.cursor]);
 
-  async function action<T>(
-    name: string,
-    operation: () => Promise<T>,
-  ): Promise<T | undefined> {
+  async function action<T>(name: string, operation: () => Promise<T>) {
     setPending(name);
     setError(undefined);
     try {
@@ -55,7 +64,7 @@ export function PlayerDashboard({
   async function startDraft(event: FormEvent) {
     event.preventDefault();
     const response = await action("draft", () =>
-      api.startDraft(snapshot.current_device_id, name),
+      api.startDraft(snapshot.current_device_id, name, raceId, classId),
     );
     if (response) setDraft(response.data);
   }
@@ -80,6 +89,7 @@ export function PlayerDashboard({
     if (selected) {
       setCharacter(response.data);
       setDraft(undefined);
+      setSection("character");
       refresh();
     }
   }
@@ -88,7 +98,10 @@ export function PlayerDashboard({
     const response = await action("select", () =>
       api.selectCharacter(snapshot.current_device_id, player, summary.id),
     );
-    if (response) refresh();
+    if (response) {
+      setSection("character");
+      refresh();
+    }
   }
 
   async function addItem(event: FormEvent) {
@@ -126,11 +139,52 @@ export function PlayerDashboard({
           {snapshot.session?.status ?? "Ожидаем лобби"}
         </div>
       </header>
+
+      <nav className="dashboard-nav" aria-label="Разделы игрока">
+        {(["lobby", "character", "combat", "dice"] as const).map((item) => (
+          <button
+            key={item}
+            className={section === item ? "active" : ""}
+            onClick={() => setSection(item)}
+          >
+            {item === "lobby"
+              ? "Лобби"
+              : item === "character"
+                ? "Персонаж"
+                : item === "combat"
+                  ? "Бой"
+                  : "Кубики"}
+          </button>
+        ))}
+      </nav>
       <ErrorNotice error={error} />
 
-      <PlayerCombatPanel snapshot={snapshot} refresh={refresh} />
+      {section === "lobby" && (
+        <section className="card stack">
+          <p className="eyebrow">ЛОББИ</p>
+          <h2>{snapshot.room.name}</h2>
+          <p>
+            Вы вошли как <strong>{player.display_name}</strong>.
+          </p>
+          <p className="muted">
+            Статус сессии:{" "}
+            {snapshot.session?.status ?? "ведущий ещё не открыл сессию"}
+          </p>
+          <button className="secondary" onClick={() => setSection("character")}>
+            Перейти к персонажу
+          </button>
+        </section>
+      )}
 
-      {!player.selected_character_id && !draft && (
+      {section === "combat" && (
+        <PlayerCombatPanel snapshot={snapshot} refresh={refresh} />
+      )}
+
+      {section === "dice" && (
+        <DicePanel snapshot={snapshot} refresh={refresh} />
+      )}
+
+      {section === "character" && !player.selected_character_id && !draft && (
         <section className="card stack">
           <p className="eyebrow">ПЕРСОНАЖ</p>
           <h2>
@@ -145,7 +199,10 @@ export function PlayerDashboard({
               onClick={() => select(summary)}
             >
               <strong>{summary.name}</strong>
-              <span>Открыть</span>
+              <span>
+                {summary.current_hp}/{summary.max_hp} HP · КБ{" "}
+                {summary.armor_class}
+              </span>
             </button>
           ))}
           <form onSubmit={startDraft} className="stack compact">
@@ -157,20 +214,63 @@ export function PlayerDashboard({
                 required
               />
             </label>
-            <button className="primary" disabled={pending === "draft"}>
-              {pending === "draft" ? "Готовим…" : "Начать простой конструктор"}
+            <div className="choice-columns">
+              <fieldset>
+                <legend>Раса</legend>
+                {options?.races.map((race) => (
+                  <label className="option-card" key={race.id}>
+                    <input
+                      type="radio"
+                      name="race"
+                      checked={raceId === race.id}
+                      onChange={() => setRaceId(race.id)}
+                    />
+                    <span>
+                      <strong>{race.name}</strong>
+                      <small>{race.description}</small>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+              <fieldset>
+                <legend>Класс</legend>
+                {options?.classes.map((characterClass) => (
+                  <label className="option-card" key={characterClass.id}>
+                    <input
+                      type="radio"
+                      name="class"
+                      checked={classId === characterClass.id}
+                      onChange={() => setClassId(characterClass.id)}
+                    />
+                    <span>
+                      <strong>{characterClass.name}</strong>
+                      <small>{characterClass.description}</small>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+            </div>
+            <button
+              className="primary"
+              disabled={pending === "draft" || !options}
+            >
+              {pending === "draft" ? "Готовим…" : "Перейти к способностям"}
             </button>
           </form>
         </section>
       )}
 
-      {draft && (
+      {section === "character" && draft && (
         <section className="card stack">
           <div className="round-counter">
-            Раунд {Math.min(draft.completed_rounds + 1, draft.required_rounds)}{" "}
-            из {draft.required_rounds}
+            Способность{" "}
+            {Math.min(draft.completed_rounds + 1, draft.required_rounds)} из{" "}
+            {draft.required_rounds}
           </div>
           <h2>Выберите способность для {draft.name}</h2>
+          <p className="muted">
+            {draft.race_id} · {draft.class_id}
+          </p>
           <div className="ability-grid">
             {draft.offered_cards.map((card) => (
               <button
@@ -199,11 +299,20 @@ export function PlayerDashboard({
         </section>
       )}
 
-      {character && (
+      {section === "character" && character && (
         <div className="player-grid">
           <section className="card stack">
             <p className="eyebrow">КАРТОЧКА ПЕРСОНАЖА</p>
             <h2>{character.name}</h2>
+            <p className="character-subtitle">
+              {character.race_id} · {character.class_id}
+            </p>
+            <div className="vitals">
+              <strong>
+                {character.current_hp}/{character.max_hp} HP
+              </strong>
+              <strong>КБ {character.armor_class}</strong>
+            </div>
             <dl className="stats">
               {Object.entries(character.stats).map(([key, value]) => (
                 <div key={key}>

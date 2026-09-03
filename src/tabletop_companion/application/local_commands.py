@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tabletop_companion.domain.access import DeviceRole
+from tabletop_companion.domain.combat import RollSelection
 from tabletop_companion.domain.models import AccessMode
 from tabletop_companion.domain.sessions import SessionStatus
 
@@ -58,15 +59,6 @@ class CreateProfileCommand:
     display_name: str
     password: str | None = None
     invitation_token: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RecoverProfileCommand:
-    command_id: str
-    device_id: str
-    client_time: str | None
-    player_id: str
-    recovery_code: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +121,115 @@ class RevokeDeviceCommand:
     room_id: str
     actor_id: str
     target_device_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class KickPlayerCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    actor_id: str
+    player_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RollRoomDiceCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    actor_id: str
+    expression: str
+    selection: RollSelection
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateCharacterCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    actor_id: str
+    character_id: str
+    name: str
+    race_id: str
+    class_id: str
+    stats: dict[str, int]
+    ability_ids: tuple[str, ...]
+    max_hp: int
+    current_hp: int
+    armor_class: int
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class GmAddInventoryItemCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    actor_id: str
+    character_id: str
+    name: str
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class GmDiscardInventoryItemCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    actor_id: str
+    character_id: str
+    item_id: str
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateGmNotesCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    actor_id: str
+    campaign: str
+    other: str
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class CreateNpcNoteCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    actor_id: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateNpcNoteCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    actor_id: str
+    npc_id: str
+    name: str
+    details: str
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteNpcNoteCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    room_id: str
+    actor_id: str
+    npc_id: str
 
 
 @dataclass(frozen=True, slots=True)

@@ -165,6 +165,8 @@ class CompanionService:
                 owner_id=player.id,
                 name=command.name,
                 sampler=self._sampler,
+                race_id=command.race_id,
+                class_id=command.class_id,
                 now=self._clock(),
             )
             uow.add_character_draft(draft)
@@ -177,7 +179,11 @@ class CompanionService:
                     actor_id=player.id,
                     command_id=command.command_id,
                     target_ids=(draft.id,),
-                    payload={"ruleset_version": draft.ruleset_version},
+                    payload={
+                        "ruleset_version": draft.ruleset_version,
+                        "race_id": draft.race_id,
+                        "class_id": draft.class_id,
+                    },
                 )
             )
             return self._draft_data(draft, ruleset)
@@ -498,6 +504,9 @@ class CompanionService:
             "description": card.description,
             "kind": card.kind,
             "properties": list(card.properties),
+            "class_ids": sorted(card.class_ids),
+            "required_stats": dict(card.required_stats),
+            "required_ability_ids": sorted(card.required_ability_ids),
         }
 
     @staticmethod
@@ -531,6 +540,8 @@ class CompanionService:
             "name": draft.name,
             "ruleset_version": draft.ruleset_version,
             "stats": dict(draft.stats),
+            "race_id": draft.race_id,
+            "class_id": draft.class_id,
             "offered_cards": [
                 self._card_data(ruleset.card(card_id)) for card_id in draft.offered_card_ids
             ],
@@ -556,6 +567,11 @@ class CompanionService:
             "name": character.name,
             "ruleset_version": character.ruleset_version,
             "stats": dict(character.stats),
+            "race_id": character.race_id,
+            "class_id": character.class_id,
+            "max_hp": character.max_hp,
+            "current_hp": character.current_hp,
+            "armor_class": character.armor_class,
             "abilities": [
                 self._card_data(ruleset.card(card_id)) for card_id in character.ability_ids
             ],

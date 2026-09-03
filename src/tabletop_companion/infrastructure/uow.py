@@ -27,6 +27,7 @@ from tabletop_companion.domain.combat import (
     InitiativeEntry,
     MonsterTemplate,
     RollMode,
+    RollSelection,
     RollVisibility,
 )
 from tabletop_companion.domain.errors import (
@@ -40,9 +41,11 @@ from tabletop_companion.domain.models import (
     Character,
     CharacterDraft,
     DraftStatus,
+    GmNotes,
     InventoryItem,
     ItemDefinition,
     LocalPlayer,
+    NpcNote,
     Room,
 )
 from tabletop_companion.domain.sessions import GameSession, SessionStatus
@@ -56,11 +59,13 @@ from tabletop_companion.infrastructure.tables import (
     EventCursorRecord,
     GameEventRecord,
     GameSessionRecord,
+    GmNotesRecord,
     InventoryItemRecord,
     ItemDefinitionRecord,
     LocalDeviceRecord,
     LocalPlayerRecord,
     MonsterTemplateRecord,
+    NpcNoteRecord,
     PairingInvitationRecord,
     ProcessedCommandRecord,
     RoomInvitationRecord,
@@ -178,9 +183,9 @@ class SqlAlchemyUnitOfWork:
                 display_name=player.display_name,
                 version=player.version,
                 created_at=player.created_at.isoformat(),
-                recovery_code_digest=player.recovery_code_digest,
                 selected_character_id=player.selected_character_id,
                 updated_at=(player.updated_at or player.created_at).isoformat(),
+                removed_at=player.removed_at.isoformat() if player.removed_at else None,
             )
         )
         self._flush_parent("local player")
@@ -197,9 +202,9 @@ class SqlAlchemyUnitOfWork:
             display_name=record.display_name,
             version=record.version,
             created_at=datetime.fromisoformat(record.created_at),
-            recovery_code_digest=record.recovery_code_digest,
             selected_character_id=record.selected_character_id,
             updated_at=datetime.fromisoformat(record.updated_at),
+            removed_at=datetime.fromisoformat(record.removed_at) if record.removed_at else None,
         )
 
     def save_local_player(self, player: LocalPlayer) -> None:
@@ -212,9 +217,9 @@ class SqlAlchemyUnitOfWork:
             .values(
                 display_name=player.display_name,
                 version=player.version,
-                recovery_code_digest=player.recovery_code_digest,
                 selected_character_id=player.selected_character_id,
                 updated_at=(player.updated_at or player.created_at).isoformat(),
+                removed_at=player.removed_at.isoformat() if player.removed_at else None,
             )
             .returning(LocalPlayerRecord.id)
         )
@@ -224,7 +229,10 @@ class SqlAlchemyUnitOfWork:
     def list_local_players(self, room_id: str) -> list[LocalPlayer]:
         records = self._session.scalars(
             select(LocalPlayerRecord)
-            .where(LocalPlayerRecord.room_id == room_id)
+            .where(
+                LocalPlayerRecord.room_id == room_id,
+                LocalPlayerRecord.removed_at.is_(None),
+            )
             .order_by(LocalPlayerRecord.created_at, LocalPlayerRecord.id)
         ).all()
         return [
@@ -234,9 +242,9 @@ class SqlAlchemyUnitOfWork:
                 display_name=record.display_name,
                 version=record.version,
                 created_at=datetime.fromisoformat(record.created_at),
-                recovery_code_digest=record.recovery_code_digest,
                 selected_character_id=record.selected_character_id,
                 updated_at=datetime.fromisoformat(record.updated_at),
+                removed_at=datetime.fromisoformat(record.removed_at) if record.removed_at else None,
             )
             for record in records
         ]
@@ -286,6 +294,11 @@ class SqlAlchemyUnitOfWork:
                 ability_ids=list(character.ability_ids),
                 version=character.version,
                 created_at=character.created_at.isoformat(),
+                race_id=character.race_id,
+                class_id=character.class_id,
+                max_hp=character.max_hp,
+                current_hp=character.current_hp,
+                armor_class=character.armor_class,
             )
         )
 
@@ -330,6 +343,11 @@ class SqlAlchemyUnitOfWork:
             version=record.version,
             created_at=datetime.fromisoformat(record.created_at),
             inventory=inventory,
+            race_id=record.race_id,
+            class_id=record.class_id,
+            max_hp=record.max_hp,
+            current_hp=record.current_hp,
+            armor_class=record.armor_class,
         )
 
     def list_characters_for_player(self, player_id: str) -> list[Character]:
@@ -339,6 +357,100 @@ class SqlAlchemyUnitOfWork:
             .order_by(CharacterRecord.created_at, CharacterRecord.id)
         ).all()
         return [self.get_character(character_id) for character_id in character_ids]
+
+    def list_characters_for_room(self, room_id: str) -> list[Character]:
+        character_ids = self._session.scalars(
+            select(CharacterRecord.id)
+            .where(CharacterRecord.room_id == room_id)
+            .order_by(CharacterRecord.created_at, CharacterRecord.id)
+        ).all()
+        return [self.get_character(character_id) for character_id in character_ids]
+
+    def get_gm_notes(self, room_id: str) -> GmNotes | None:
+        record = self._session.get(GmNotesRecord, room_id)
+        if record is None:
+            return None
+        return GmNotes(
+            room_id=record.room_id,
+            campaign=record.campaign,
+            other=record.other,
+            version=record.version,
+            updated_at=datetime.fromisoformat(record.updated_at),
+        )
+
+    def add_gm_notes(self, notes: GmNotes) -> None:
+        self._session.add(
+            GmNotesRecord(
+                room_id=notes.room_id,
+                campaign=notes.campaign,
+                other=notes.other,
+                version=notes.version,
+                updated_at=notes.updated_at.isoformat(),
+            )
+        )
+
+    def save_gm_notes(self, notes: GmNotes) -> None:
+        updated_id = self._session.scalar(
+            update(GmNotesRecord)
+            .where(
+                GmNotesRecord.room_id == notes.room_id,
+                GmNotesRecord.version == notes.version - 1,
+            )
+            .values(
+                campaign=notes.campaign,
+                other=notes.other,
+                version=notes.version,
+                updated_at=notes.updated_at.isoformat(),
+            )
+            .returning(GmNotesRecord.room_id)
+        )
+        if updated_id is None:
+            raise StateConflictError("GM notes changed concurrently.")
+
+    def list_npc_notes(self, room_id: str) -> list[NpcNote]:
+        records = self._session.scalars(
+            select(NpcNoteRecord)
+            .where(NpcNoteRecord.room_id == room_id)
+            .order_by(NpcNoteRecord.name, NpcNoteRecord.id)
+        ).all()
+        return [self._npc_note(record) for record in records]
+
+    def get_npc_note(self, npc_id: str) -> NpcNote:
+        record = self._session.get(NpcNoteRecord, npc_id)
+        if record is None:
+            raise EntityNotFoundError("NPC note was not found.", details={"npc_id": npc_id})
+        return self._npc_note(record)
+
+    def add_npc_note(self, note: NpcNote) -> None:
+        self._session.add(
+            NpcNoteRecord(
+                id=note.id,
+                room_id=note.room_id,
+                name=note.name,
+                details=note.details,
+                version=note.version,
+                created_at=note.created_at.isoformat(),
+                updated_at=note.updated_at.isoformat(),
+            )
+        )
+
+    def save_npc_note(self, note: NpcNote) -> None:
+        updated_id = self._session.scalar(
+            update(NpcNoteRecord)
+            .where(NpcNoteRecord.id == note.id, NpcNoteRecord.version == note.version - 1)
+            .values(
+                name=note.name,
+                details=note.details,
+                version=note.version,
+                updated_at=note.updated_at.isoformat(),
+            )
+            .returning(NpcNoteRecord.id)
+        )
+        if updated_id is None:
+            raise StateConflictError("NPC note changed concurrently.")
+
+    def delete_npc_note(self, npc_id: str) -> None:
+        self._session.execute(delete(NpcNoteRecord).where(NpcNoteRecord.id == npc_id))
 
     def add_pairing_invitation(self, invitation: PairingInvitation) -> None:
         self._session.add(
@@ -546,7 +658,17 @@ class SqlAlchemyUnitOfWork:
                 CharacterRecord.id == character.id,
                 CharacterRecord.version == character.version - 1,
             )
-            .values(version=character.version)
+            .values(
+                name=character.name,
+                race_id=character.race_id,
+                class_id=character.class_id,
+                stats=dict(character.stats),
+                ability_ids=list(character.ability_ids),
+                max_hp=character.max_hp,
+                current_hp=character.current_hp,
+                armor_class=character.armor_class,
+                version=character.version,
+            )
             .returning(CharacterRecord.id)
         )
         if updated_id is None:
@@ -729,6 +851,14 @@ class SqlAlchemyUnitOfWork:
         ).all()
         return [self._dice_roll(record) for record in records]
 
+    def list_room_dice_rolls(self, room_id: str) -> list[DiceRoll]:
+        records = self._session.scalars(
+            select(DiceRollRecord)
+            .where(DiceRollRecord.room_id == room_id)
+            .order_by(DiceRollRecord.created_at, DiceRollRecord.id)
+        ).all()
+        return [self._dice_roll(record) for record in records]
+
     def get_event(self, event_id: str) -> DomainEvent:
         record = self._session.get(GameEventRecord, event_id)
         if record is None:
@@ -863,6 +993,8 @@ class SqlAlchemyUnitOfWork:
             version=draft.version,
             created_at=draft.created_at.isoformat(),
             updated_at=draft.updated_at.isoformat(),
+            race_id=draft.race_id,
+            class_id=draft.class_id,
         )
 
     @staticmethod
@@ -878,6 +1010,20 @@ class SqlAlchemyUnitOfWork:
             chosen_card_ids=list(record.chosen_card_ids),
             generation=record.generation,
             status=DraftStatus(record.status),
+            version=record.version,
+            created_at=datetime.fromisoformat(record.created_at),
+            updated_at=datetime.fromisoformat(record.updated_at),
+            race_id=record.race_id,
+            class_id=record.class_id,
+        )
+
+    @staticmethod
+    def _npc_note(record: NpcNoteRecord) -> NpcNote:
+        return NpcNote(
+            id=record.id,
+            room_id=record.room_id,
+            name=record.name,
+            details=record.details,
             version=record.version,
             created_at=datetime.fromisoformat(record.created_at),
             updated_at=datetime.fromisoformat(record.updated_at),
@@ -1111,6 +1257,10 @@ class SqlAlchemyUnitOfWork:
             action_event_id=roll.action_event_id,
             created_at=roll.created_at.isoformat(),
             revealed_at=roll.revealed_at.isoformat() if roll.revealed_at else None,
+            selection=roll.selection.value,
+            attempts=[list(attempt) for attempt in roll.attempts],
+            attempt_totals=list(roll.attempt_totals),
+            selected_attempt=roll.selected_attempt,
         )
 
     @staticmethod
@@ -1132,6 +1282,10 @@ class SqlAlchemyUnitOfWork:
             action_event_id=record.action_event_id,
             created_at=datetime.fromisoformat(record.created_at),
             revealed_at=datetime.fromisoformat(record.revealed_at) if record.revealed_at else None,
+            selection=RollSelection(record.selection),
+            attempts=tuple(tuple(attempt) for attempt in record.attempts),
+            attempt_totals=tuple(record.attempt_totals),
+            selected_attempt=record.selected_attempt,
         )
 
     @staticmethod

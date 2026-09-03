@@ -155,13 +155,9 @@ export function ProfileSetup({
   device: Device;
   onReady: () => void;
 }) {
-  const [mode, setMode] = useState<"create" | "recover">("create");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [invitationToken, setInvitationToken] = useState("");
-  const [playerId, setPlayerId] = useState("");
-  const [recoveryCode, setRecoveryCode] = useState("");
-  const [issuedRecovery, setIssuedRecovery] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
 
@@ -170,17 +166,12 @@ export function ProfileSetup({
     setPending(true);
     setError(undefined);
     try {
-      if (mode === "create") {
-        const response = await api.createProfile(device.id, {
-          displayName,
-          password,
-          invitationToken,
-        });
-        setIssuedRecovery(response.data.recovery_code);
-      } else {
-        await api.recoverProfile(device.id, playerId, recoveryCode);
-        onReady();
-      }
+      await api.createProfile(device.id, {
+        displayName,
+        password,
+        invitationToken,
+      });
+      onReady();
     } catch (reason) {
       setError(reason);
     } finally {
@@ -188,96 +179,36 @@ export function ProfileSetup({
     }
   }
 
-  if (issuedRecovery) {
-    return (
-      <main className="centered">
-        <section className="card stack">
-          <h1>Сохраните код восстановления</h1>
-          <p>Он показывается только сейчас и нужен для второго устройства.</p>
-          <code className="secret">{issuedRecovery}</code>
-          <button className="primary" onClick={onReady}>
-            Я сохранил код
-          </button>
-        </section>
-      </main>
-    );
-  }
-
   return (
     <main className="centered">
       <form className="card stack" onSubmit={submit}>
-        <h1>
-          {mode === "create" ? "Ваш локальный профиль" : "Восстановить профиль"}
-        </h1>
-        <div className="tabs">
-          <button
-            type="button"
-            onClick={() => setMode("create")}
-            aria-pressed={mode === "create"}
-          >
-            Новый
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("recover")}
-            aria-pressed={mode === "recover"}
-          >
-            Восстановить
-          </button>
-        </div>
-        {mode === "create" ? (
-          <>
-            <label>
-              Имя за столом
-              <input
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-                required
-              />
-            </label>
-            <label>
-              Пароль комнаты, если нужен
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
-            <label>
-              Приглашение, если нужно
-              <input
-                value={invitationToken}
-                onChange={(event) => setInvitationToken(event.target.value)}
-              />
-            </label>
-          </>
-        ) : (
-          <>
-            <label>
-              ID профиля
-              <input
-                value={playerId}
-                onChange={(event) => setPlayerId(event.target.value)}
-                required
-              />
-            </label>
-            <label>
-              Код восстановления
-              <input
-                value={recoveryCode}
-                onChange={(event) => setRecoveryCode(event.target.value)}
-                required
-              />
-            </label>
-          </>
-        )}
+        <h1>Ваш профиль за столом</h1>
+        <label>
+          Имя за столом
+          <input
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            required
+          />
+        </label>
+        <label>
+          Пароль комнаты, если нужен
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+        <label>
+          Приглашение, если нужно
+          <input
+            value={invitationToken}
+            onChange={(event) => setInvitationToken(event.target.value)}
+          />
+        </label>
         <ErrorNotice error={error} />
         <button className="primary" disabled={pending}>
-          {pending
-            ? "Проверяем…"
-            : mode === "create"
-              ? "Создать профиль"
-              : "Восстановить"}
+          {pending ? "Подключаем…" : "Войти в комнату"}
         </button>
       </form>
     </main>

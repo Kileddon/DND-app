@@ -32,9 +32,9 @@ class LocalPlayerRecord(Base):
     display_name: Mapped[str] = mapped_column(String(80))
     version: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[str] = mapped_column(String(40))
-    recovery_code_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     selected_character_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     updated_at: Mapped[str] = mapped_column(String(40))
+    removed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class CharacterDraftRecord(Base):
@@ -53,6 +53,8 @@ class CharacterDraftRecord(Base):
     version: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[str] = mapped_column(String(40))
     updated_at: Mapped[str] = mapped_column(String(40))
+    race_id: Mapped[str] = mapped_column(String(40))
+    class_id: Mapped[str] = mapped_column(String(40))
 
 
 class CharacterRecord(Base):
@@ -68,6 +70,33 @@ class CharacterRecord(Base):
     ability_ids: Mapped[list[str]] = mapped_column(JSON)
     version: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[str] = mapped_column(String(40))
+    race_id: Mapped[str] = mapped_column(String(40))
+    class_id: Mapped[str] = mapped_column(String(40))
+    max_hp: Mapped[int] = mapped_column(Integer)
+    current_hp: Mapped[int] = mapped_column(Integer)
+    armor_class: Mapped[int] = mapped_column(Integer)
+
+
+class GmNotesRecord(Base):
+    __tablename__ = "gm_notes"
+
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), primary_key=True)
+    campaign: Mapped[str] = mapped_column(String(20000))
+    other: Mapped[str] = mapped_column(String(20000))
+    version: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[str] = mapped_column(String(40))
+
+
+class NpcNoteRecord(Base):
+    __tablename__ = "npc_notes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    details: Mapped[str] = mapped_column(String(20000))
+    version: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
 
 
 class ItemDefinitionRecord(Base):
@@ -257,7 +286,9 @@ class DiceRollRecord(Base):
     __tablename__ = "dice_rolls"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    combat_id: Mapped[str] = mapped_column(ForeignKey("combats.id"), index=True)
+    combat_id: Mapped[str | None] = mapped_column(
+        ForeignKey("combats.id"), index=True, nullable=True
+    )
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), index=True)
     actor_id: Mapped[str] = mapped_column(String(36))
     character_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -272,6 +303,10 @@ class DiceRollRecord(Base):
     action_event_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[str] = mapped_column(String(40))
     revealed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    selection: Mapped[str] = mapped_column(String(16), default="neutral")
+    attempts: Mapped[list[list[int]]] = mapped_column(JSON, default=list)
+    attempt_totals: Mapped[list[int]] = mapped_column(JSON, default=list)
+    selected_attempt: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class EventCompensationRecord(Base):

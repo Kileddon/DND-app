@@ -32,6 +32,8 @@ class StartCharacterDraftCommand:
     room_id: str
     player_id: str
     name: str
+    race_id: str = "human"
+    class_id: str = "fighter"
 
 
 @dataclass(frozen=True, slots=True)

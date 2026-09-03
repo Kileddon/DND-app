@@ -37,7 +37,12 @@ from tabletop_companion.application.combat_commands import (
 )
 from tabletop_companion.application.combat_service import CombatService
 from tabletop_companion.application.service import CommandOutcome
-from tabletop_companion.domain.combat import HealthActionType, RollMode, RollVisibility
+from tabletop_companion.domain.combat import (
+    HealthActionType,
+    RollMode,
+    RollSelection,
+    RollVisibility,
+)
 
 
 class CreateCombatRequest(CommandRequest):
@@ -124,6 +129,7 @@ class RollRequest(CommandRequest):
     recipient_player_id: UUID | None = None
     physical_result: int | None = Field(default=None, ge=-100000, le=100000)
     action_event_id: UUID | None = None
+    selection: RollSelection = RollSelection.NEUTRAL
 
 
 class EditRollRequest(CommandRequest):
@@ -521,6 +527,7 @@ def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) 
                 str(payload.recipient_player_id) if payload.recipient_player_id else None,
                 payload.physical_result,
                 str(payload.action_event_id) if payload.action_event_id else None,
+                payload.selection,
             ),
             current,
         )

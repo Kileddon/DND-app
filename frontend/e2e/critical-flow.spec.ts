@@ -22,16 +22,11 @@ test("GM and player complete the local multiplayer slice", async ({
   await player.getByLabel("Короткий код подключения").fill(shortCode);
   await player.getByRole("button", { name: "Подключиться как игрок" }).click();
   await player.getByLabel("Имя за столом").fill("Mira");
-  await player.getByRole("button", { name: "Создать профиль" }).click();
-  await expect(
-    player.getByRole("heading", { name: "Сохраните код восстановления" }),
-  ).toBeVisible();
-  await player.getByRole("button", { name: "Я сохранил код" }).click();
+  await player.getByRole("button", { name: "Войти в комнату" }).click();
 
+  await player.getByRole("button", { name: "Персонаж", exact: true }).click();
   await player.getByLabel("Имя нового персонажа").fill("Aria");
-  await player
-    .getByRole("button", { name: "Начать простой конструктор" })
-    .click();
+  await player.getByRole("button", { name: "Перейти к способностям" }).click();
   for (let round = 0; round < 4; round += 1) {
     await player.locator(".ability-card").first().click();
   }
@@ -44,6 +39,8 @@ test("GM and player complete the local multiplayer slice", async ({
   await page.getByRole("button", { name: "Начать игру" }).click();
   await expect(player.getByText("ACTIVE")).toBeVisible();
 
+  await page.getByRole("button", { name: "Бой", exact: true }).click();
+  await player.getByRole("button", { name: "Бой", exact: true }).click();
   await page.getByRole("button", { name: "Создать бой" }).click();
   await expect(page.getByRole("heading", { name: "Раунд 0" })).toBeVisible();
   await page
@@ -67,8 +64,16 @@ test("GM and player complete the local multiplayer slice", async ({
     player.getByText("ранен", { exact: true }).first(),
   ).toBeVisible();
   await page.getByRole("button", { name: "Следующий ход" }).click();
-  await player.getByLabel("Формула броска").fill("1d20+2");
-  await player.getByRole("button", { name: "Бросить" }).click();
+  await player.getByRole("button", { name: "Кубики", exact: true }).click();
+  await player.getByRole("button", { name: "С преимуществом" }).click();
+  await player.locator(".die-button").filter({ hasText: "d20" }).click();
+  await expect(player.getByText("Кубики катятся…")).toBeVisible();
+  await expect(player.getByText("Результат")).toBeVisible({ timeout: 3000 });
+  await player.getByRole("button", { name: "Закрыть" }).click();
+  await page.getByRole("button", { name: "Кубики", exact: true }).click();
+  await expect(page.getByText("С преимуществом").last()).toBeVisible();
+  await page.getByRole("button", { name: "Бой", exact: true }).click();
+  await player.getByRole("button", { name: "Бой", exact: true }).click();
   await player.getByLabel("Заявка поддержки").fill("Отвлекаю второго гоблина");
   await player.getByRole("button", { name: "Предложить поддержку" }).click();
   await expect(page.getByText("Заявка поддержки")).toBeVisible();
@@ -77,14 +82,17 @@ test("GM and player complete the local multiplayer slice", async ({
     page.getByText("БОЙ · COMPLETED", { exact: true }),
   ).toBeVisible();
 
+  await player.getByRole("button", { name: "Персонаж", exact: true }).click();
   await player.getByLabel("Название предмета").fill("Rope");
   await player.getByRole("button", { name: "Добавить" }).click();
   await expect(player.getByText("Rope")).toBeVisible();
   await player.reload();
+  await player.getByRole("button", { name: "Персонаж", exact: true }).click();
   await expect(player.getByRole("heading", { name: "Aria" })).toBeVisible();
   await player.getByRole("button", { name: "Удалить 1" }).click();
   await expect(player.getByText("Инвентарь пуст.")).toBeVisible();
 
+  await page.getByRole("button", { name: "Лобби", exact: true }).click();
   await page.getByRole("button", { name: "Завершить сессию" }).click();
   await expect(page.getByText("Нет активной")).toBeVisible();
   await playerContext.close();

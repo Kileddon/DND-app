@@ -38,6 +38,11 @@ const character: Character = {
   id: "character",
   name: "Aria",
   owner_id: "player",
+  race_id: "human",
+  class_id: "fighter",
+  max_hp: 20,
+  current_hp: 20,
+  armor_class: 15,
   stats: { might: 2, mind: 3 },
   abilities: [],
   inventory: [
@@ -162,6 +167,42 @@ describe("local multiplayer interface", () => {
     expect(api.transitionSession).toHaveBeenCalled();
   });
 
+  it("lets the GM kick a player from the lobby", async () => {
+    vi.spyOn(api, "diagnostics").mockRejectedValue(new Error("offline"));
+    vi.spyOn(api, "kickPlayer").mockResolvedValue({
+      data: { player_id: "player", device_ids: ["player-device"] },
+      meta: { replayed: false },
+    });
+    render(<HostDashboard snapshot={gmSnapshot} refresh={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Выгнать" }));
+
+    await waitFor(() =>
+      expect(api.kickPlayer).toHaveBeenCalledWith(
+        "room",
+        "player",
+        "gm-device",
+      ),
+    );
+  });
+
+  it("opens the GM notes section", async () => {
+    vi.spyOn(api, "diagnostics").mockRejectedValue(new Error("offline"));
+    vi.spyOn(api, "gmNotes").mockResolvedValue({
+      campaign: "Amber road mystery",
+      other: "",
+      version: 1,
+      npcs: [],
+    });
+    render(<HostDashboard snapshot={gmSnapshot} refresh={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Заметки" }));
+
+    expect(
+      await screen.findByDisplayValue("Amber road mystery"),
+    ).toBeInTheDocument();
+  });
+
   it("shows reconnect state without relying on color", () => {
     render(<ConnectionBadge state="reconnecting" />);
     expect(screen.getByRole("status")).toHaveTextContent("Переподключение");
@@ -178,12 +219,18 @@ describe("local multiplayer interface", () => {
   });
 
   it("discards inventory only after server acknowledgement", async () => {
+    vi.spyOn(api, "characterOptions").mockResolvedValue({
+      races: [],
+      classes: [],
+      abilities: [],
+    });
     vi.spyOn(api, "character").mockResolvedValue(character);
     vi.spyOn(api, "discardItem").mockResolvedValue({
       data: { ...character, inventory: [], version: 3 },
       meta: { replayed: false },
     });
     render(<PlayerDashboard snapshot={playerSnapshot} refresh={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Персонаж" }));
     await screen.findByText("Rope");
     await userEvent.click(screen.getByRole("button", { name: "Удалить 1" }));
     await waitFor(() =>
@@ -197,10 +244,27 @@ describe("local multiplayer interface", () => {
       player: { ...playerSnapshot.player!, selected_character_id: null },
       characters: [],
     };
+    vi.spyOn(api, "characterOptions").mockResolvedValue({
+      races: [
+        { id: "human", name: "Human", description: "Adaptable", hp_bonus: 0 },
+      ],
+      classes: [
+        {
+          id: "fighter",
+          name: "Fighter",
+          description: "Martial",
+          base_hp: 10,
+          base_armor_class: 14,
+        },
+      ],
+      abilities: [],
+    });
     vi.spyOn(api, "startDraft").mockResolvedValue({
       data: {
         id: "draft",
         name: "Aria",
+        race_id: "human",
+        class_id: "fighter",
         offered_cards: [
           { id: "swift", name: "Swift", description: "Fast", kind: "talent" },
         ],
@@ -213,12 +277,13 @@ describe("local multiplayer interface", () => {
       meta: { replayed: false },
     });
     render(<PlayerDashboard snapshot={withoutCharacter} refresh={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Персонаж" }));
     await userEvent.type(
       screen.getByLabelText(/имя нового персонажа/i),
       "Aria",
     );
     await userEvent.click(
-      screen.getByRole("button", { name: /начать простой конструктор/i }),
+      screen.getByRole("button", { name: /перейти к способностям/i }),
     );
     expect(await screen.findByText("Swift")).toBeInTheDocument();
   });

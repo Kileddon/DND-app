@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tabletop_companion.domain.combat import HealthActionType, RollMode, RollVisibility
+from tabletop_companion.domain.combat import (
+    HealthActionType,
+    RollMode,
+    RollSelection,
+    RollVisibility,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +160,7 @@ class RollDiceCommand:
     recipient_player_id: str | None
     physical_result: int | None
     action_event_id: str | None
+    selection: RollSelection = RollSelection.NEUTRAL
 
 
 @dataclass(frozen=True, slots=True)

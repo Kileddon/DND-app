@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from tabletop_companion.domain.access import DeviceRole
+from tabletop_companion.domain.combat import RollSelection
 from tabletop_companion.domain.models import AccessMode
 from tabletop_companion.domain.sessions import SessionStatus
 
@@ -59,6 +60,8 @@ class JoinLocalPlayerRequest(CommandRequest):
 
 class StartCharacterDraftRequest(CommandRequest):
     name: str = Field(min_length=1, max_length=80)
+    race_id: str = Field(default="human", min_length=1, max_length=40)
+    class_id: str = Field(default="fighter", min_length=1, max_length=40)
 
 
 class ChooseAbilityCardRequest(CommandRequest):
@@ -91,12 +94,20 @@ class DiscardInventoryItemRequest(CommandRequest):
     expected_version: int = Field(ge=1)
 
 
+class RoomDiceRollRequest(CommandRequest):
+    expression: str = Field(min_length=2, max_length=32)
+    selection: RollSelection = RollSelection.NEUTRAL
+
+
 class AbilityCardView(BaseModel):
     id: str
     name: str
     description: str
     kind: str
     properties: list[str]
+    class_ids: list[str] = Field(default_factory=list)
+    required_stats: dict[str, int] = Field(default_factory=dict)
+    required_ability_ids: list[str] = Field(default_factory=list)
 
 
 class RoomView(BaseModel):
@@ -125,6 +136,8 @@ class CharacterDraftView(BaseModel):
     name: str
     ruleset_version: str
     stats: dict[str, int]
+    race_id: str
+    class_id: str
     offered_cards: list[AbilityCardView]
     chosen_cards: list[AbilityCardView]
     completed_rounds: int
@@ -157,6 +170,11 @@ class CharacterView(BaseModel):
     name: str
     ruleset_version: str
     stats: dict[str, int]
+    race_id: str
+    class_id: str
+    max_hp: int
+    current_hp: int
+    armor_class: int
     abilities: list[AbilityCardView]
     inventory: list[InventoryItemView]
     version: int
@@ -210,11 +228,6 @@ class ProfileCreateRequest(CommandRequest):
     invitation_token: str | None = Field(default=None, max_length=256)
 
 
-class ProfileRecoverRequest(CommandRequest):
-    player_id: UUID
-    recovery_code: str = Field(min_length=16, max_length=256)
-
-
 class CharacterSelectRequest(CommandRequest):
     character_id: UUID
     expected_version: int = Field(ge=1)
@@ -236,6 +249,34 @@ class SessionTransitionRequest(CommandRequest):
 
 class DeviceRevokeRequest(CommandRequest):
     pass
+
+
+class CharacterUpdateRequest(CommandRequest):
+    name: str = Field(min_length=1, max_length=80)
+    race_id: str = Field(min_length=1, max_length=40)
+    class_id: str = Field(min_length=1, max_length=40)
+    stats: dict[str, int]
+    ability_ids: list[str]
+    max_hp: int = Field(ge=1, le=100000)
+    current_hp: int = Field(ge=0, le=100000)
+    armor_class: int = Field(ge=1, le=1000)
+    expected_version: int = Field(ge=1)
+
+
+class GmNotesUpdateRequest(CommandRequest):
+    campaign: str = Field(max_length=20000)
+    other: str = Field(max_length=20000)
+    expected_version: int = Field(ge=0)
+
+
+class NpcNoteCreateRequest(CommandRequest):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class NpcNoteUpdateRequest(CommandRequest):
+    name: str = Field(min_length=1, max_length=120)
+    details: str = Field(max_length=20000)
+    expected_version: int = Field(ge=1)
 
 
 class LocalCommandResponse(BaseModel):

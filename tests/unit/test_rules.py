@@ -60,7 +60,10 @@ def test_seeded_card_offers_are_reproducible() -> None:
 
 
 def test_bad_content_pool_fails_with_diagnostic_error() -> None:
-    undersized = replace(DEFAULT_RULESET, cards=DEFAULT_RULESET.cards[:2])
+    undersized = replace(
+        DEFAULT_RULESET,
+        cards=tuple(replace(card, class_ids=frozenset()) for card in DEFAULT_RULESET.cards[:2]),
+    )
 
     with pytest.raises(ContentConfigurationError, match="Not enough") as raised:
         undersized.start_draft(
@@ -143,6 +146,36 @@ def test_incompatible_card_is_rejected_even_if_content_offer_is_bad() -> None:
         )
 
     assert raised.value.code == "incompatible_card"
+
+
+def test_future_stat_and_ability_prerequisites_are_enforced() -> None:
+    constrained_cards = tuple(
+        replace(
+            card,
+            required_stats=(("strength", 16),),
+            required_ability_ids=frozenset({"battle_fury"}),
+        )
+        if card.id == "second_wind"
+        else card
+        for card in DEFAULT_RULESET.cards
+    )
+    ruleset = replace(DEFAULT_RULESET, cards=constrained_cards)
+
+    with pytest.raises(DomainValidationError) as raised:
+        ruleset.validate_character_choices(
+            race_id="human",
+            class_id="fighter",
+            stats={"strength": 15},
+            ability_ids=["second_wind"],
+        )
+    assert raised.value.code == "ability_requirements_not_met"
+
+    ruleset.validate_character_choices(
+        race_id="human",
+        class_id="fighter",
+        stats={"strength": 16},
+        ability_ids=["battle_fury", "second_wind"],
+    )
 
 
 def test_restart_clears_choices_and_increments_generation() -> None:

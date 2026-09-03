@@ -47,6 +47,7 @@ from tabletop_companion.domain.combat import (
     InitiativeEntry,
     MonsterTemplate,
     RollMode,
+    RollSelection,
     RollVisibility,
     build_combat_report,
 )
@@ -162,10 +163,10 @@ class CombatService:
                 kind=CombatantKind.CHARACTER,
                 reference_id=character.id,
                 name=character.name,
-                max_hp=command.max_hp,
-                current_hp=command.current_hp,
+                max_hp=character.max_hp,
+                current_hp=character.current_hp,
                 temporary_hp=0,
-                armor_class=command.armor_class,
+                armor_class=character.armor_class,
                 conditions=[],
                 show_wound_state=False,
                 wound_override=None,
@@ -499,12 +500,24 @@ class CombatService:
             rolls: list[DiceRoll] = []
             for actor in actors:
                 values: tuple[int, ...]
+                attempts: tuple[tuple[int, ...], ...]
+                attempt_totals: tuple[int, ...]
+                selected_attempt: int
                 if command.mode is RollMode.PHYSICAL:
+                    if command.selection is not RollSelection.NEUTRAL:
+                        raise DomainValidationError(
+                            "Advantage and disadvantage require a digital roll."
+                        )
                     if command.physical_result is None:
                         raise DomainValidationError("Physical roll result is required.")
                     values, result = (), command.physical_result
+                    attempts, attempt_totals, selected_attempt = ((),), (result,), 0
                 else:
-                    values, result = expression.roll(self._randint)
+                    attempts, attempt_totals, selected_attempt = expression.roll_selected(
+                        command.selection, self._randint
+                    )
+                    values = attempts[selected_attempt]
+                    result = attempt_totals[selected_attempt]
                 roll = DiceRoll(
                     id=self._id_factory(),
                     combat_id=combat.id,
@@ -523,6 +536,10 @@ class CombatService:
                     reason=None,
                     action_event_id=command.action_event_id,
                     created_at=self._clock(),
+                    selection=command.selection,
+                    attempts=attempts,
+                    attempt_totals=attempt_totals,
+                    selected_attempt=selected_attempt,
                 )
                 if roll.visibility is RollVisibility.PRIVATE and roll.recipient_player_id is None:
                     raise DomainValidationError("Private roll needs a recipient player.")
@@ -551,6 +568,8 @@ class CombatService:
             roll = uow.get_dice_roll(command.roll_id)
             if roll.room_id != command.room_id:
                 raise PermissionDeniedError("Roll does not belong to this room.")
+            if roll.combat_id is None:
+                raise PermissionDeniedError("Only combat rolls can be edited here.")
             roll.edit(command.result, command.reason)
             uow.save_dice_roll(roll)
             combat = uow.get_combat(roll.combat_id)
@@ -583,6 +602,8 @@ class CombatService:
             roll = uow.get_dice_roll(command.roll_id)
             if roll.room_id != command.room_id:
                 raise PermissionDeniedError("Roll does not belong to this room.")
+            if roll.combat_id is None:
+                raise PermissionDeniedError("Only combat rolls can be revealed here.")
             roll.reveal(self._clock())
             uow.save_dice_roll(roll)
             combat = uow.get_combat(roll.combat_id)
@@ -1142,6 +1163,10 @@ class CombatService:
             "action_event_id": item.action_event_id,
             "created_at": item.created_at.isoformat(),
             "revealed_at": item.revealed_at.isoformat() if item.revealed_at else None,
+            "selection": item.selection.value,
+            "attempts": [list(attempt) for attempt in item.attempts],
+            "attempt_totals": list(item.attempt_totals),
+            "selected_attempt": item.selected_attempt,
         }
 
     @staticmethod
