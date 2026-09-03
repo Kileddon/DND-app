@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { HostCombatPanel, PlayerCombatPanel } from "./components/CombatPanel";
 import { ConnectionBadge } from "./components/ConnectionBadge";
+import { App } from "./App";
 import { WelcomeScreen } from "./components/EntryScreens";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { HostDashboard } from "./components/HostDashboard";
@@ -114,9 +115,26 @@ const combat: CombatState = {
   report: null,
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("local multiplayer interface", () => {
+  it("opens host setup when the create-room hash link is clicked", async () => {
+    location.hash = "";
+    vi.spyOn(api, "snapshot").mockRejectedValue(
+      new ApiError(401, "authentication_required", "Not authenticated", {}),
+    );
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("link", { name: "Создать комнату" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Создать комнату" }),
+    ).toBeInTheDocument();
+  });
+
   it("exchanges a short pairing code", async () => {
     location.hash = "";
     vi.spyOn(api, "exchangePairing").mockResolvedValue({
@@ -230,6 +248,23 @@ describe("local multiplayer interface", () => {
         false,
       ),
     );
+  });
+
+  it("finishes adding selected characters when there is nothing new to add", async () => {
+    const refresh = vi.fn();
+    render(
+      <HostCombatPanel
+        snapshot={{ ...gmSnapshot, combat }}
+        refresh={refresh}
+      />,
+    );
+
+    await userEvent.click(document.querySelector(".combat-setup > button")!);
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(
+      screen.queryByText(/Cannot read properties/),
+    ).not.toBeInTheDocument();
   });
 
   it("shows a player exact own HP but only a monster wound category", () => {

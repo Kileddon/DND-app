@@ -61,8 +61,7 @@ export function HostCombatPanel({
     setError(undefined);
     try {
       const response = await operation();
-      const value = response as { data?: unknown };
-      if (value.data) refresh();
+      refresh();
       return response;
     } catch (reason) {
       setError(reason);

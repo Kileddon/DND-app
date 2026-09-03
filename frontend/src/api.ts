@@ -208,17 +208,33 @@ export class ApiError extends Error {
   }
 }
 
+function newId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10, 16).join(""),
+  ].join("-");
+}
+
 export function installationId(): string {
   const key = "ttc-device-installation";
   const stored = sessionStorage.getItem(key);
   if (stored) return stored;
-  const value = crypto.randomUUID();
+  const value = newId();
   sessionStorage.setItem(key, value);
   return value;
 }
 
 export function commandMeta(deviceId = installationId()) {
-  return { command_id: crypto.randomUUID(), device_id: deviceId };
+  return { command_id: newId(), device_id: deviceId };
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -253,7 +269,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify({
           ...commandMeta(),
-          gm_id: crypto.randomUUID(),
+          gm_id: newId(),
           name: input.name,
           access_mode: input.accessMode,
           password: input.password || null,

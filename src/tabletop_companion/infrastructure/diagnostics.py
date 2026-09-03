@@ -17,7 +17,21 @@ def local_addresses() -> list[str]:
             addresses.add(str(result[4][0]))
     except OSError:
         pass
-    return sorted(addresses, key=lambda value: (value.startswith("127."), value))
+
+    def connection_priority(value: str) -> tuple[int, str]:
+        # Home routers most commonly use 192.168/16. Prefer that subnet over
+        # virtual-machine and VPN adapters when choosing the address for a QR link.
+        if value.startswith("192.168."):
+            return (0, value)
+        if value.startswith("10."):
+            return (1, value)
+        if value.startswith("172."):
+            return (2, value)
+        if value.startswith("127."):
+            return (4, value)
+        return (3, value)
+
+    return sorted(addresses, key=connection_priority)
 
 
 def database_diagnostics(database_url: str) -> dict[str, int | str]:

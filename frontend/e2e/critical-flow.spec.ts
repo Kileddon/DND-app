@@ -5,7 +5,11 @@ test("GM and player complete the local multiplayer slice", async ({
   browser,
 }) => {
   const campaign = `E2E ${Date.now()}`;
-  await page.goto("/#/host");
+  await page.goto("/");
+  await page.getByRole("link", { name: "Создать комнату" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Создать комнату" }),
+  ).toBeVisible();
   await page.getByLabel("Название кампании").fill(campaign);
   await page.getByRole("button", { name: "Создать и открыть панель" }).click();
   await expect(page.getByRole("heading", { name: campaign })).toBeVisible();
