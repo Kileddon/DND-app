@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { api, type CharacterDraft, type CharacterOptions } from "../api";
 import { ErrorNotice } from "./ErrorNotice";
+import { statLabels } from "../viewRules";
 
 const statIds = [
   "strength",
@@ -11,17 +12,6 @@ const statIds = [
   "wisdom",
   "charisma",
 ];
-const pointCosts: Record<number, number> = {
-  8: 0,
-  9: 1,
-  10: 2,
-  11: 3,
-  12: 4,
-  13: 5,
-  14: 7,
-  15: 9,
-};
-
 export function CharacterCreationWizard({
   deviceId,
   options,
@@ -38,14 +28,14 @@ export function CharacterCreationWizard({
   const [method, setMethod] = useState<"standard" | "random" | "point_buy">(
     "standard",
   );
-  const [stats, setStats] = useState<Record<string, number>>({
+  const stats: Record<string, number> = {
     strength: 15,
     dexterity: 15,
     constitution: 15,
     intelligence: 8,
     wisdom: 8,
     charisma: 8,
-  });
+  };
   const [choices, setChoices] = useState<Record<string, string>>({
     size: "medium",
     skill: "perception",
@@ -80,17 +70,6 @@ export function CharacterCreationWizard({
   const statCatalog = options.stats ?? [];
   const species = speciesCatalog.find((item) => item.id === raceId);
   const legacyCatalog = !options.class_details;
-  const hasVariantStep = ["gnome", "dragonborn", "human", "elf"].includes(
-    raceId,
-  );
-  const spent = useMemo(
-    () =>
-      Object.values(stats).reduce(
-        (sum, value) => sum + (pointCosts[value] ?? 99),
-        0,
-      ),
-    [stats],
-  );
   const steps = [
     "Имя",
     "Класс",
@@ -207,11 +186,20 @@ export function CharacterCreationWizard({
           ))}
         </div>
       )}
-      {step === 3 && hasVariantStep && (
+      {step === 3 && (
         <div className="stack compact">
+          <h2>Подтверждение расы: {species?.name}</h2>
+          <p>{species?.description}</p>
           <p>
             {species?.creature_type} · скорость {species?.speed} футов
           </p>
+          <div className="feature-buttons">
+            {species?.features.map((feature) => (
+              <span className="secondary" key={feature.id}>
+                {feature.name}
+              </span>
+            ))}
+          </div>
           {raceId === "gnome" && (
             <>
               <Choice
@@ -242,29 +230,6 @@ export function CharacterCreationWizard({
               onChange={(value) => setChoices({ ...choices, lineage: value })}
             />
           )}
-          {raceId === "human" && (
-            <>
-              <Choice
-                label="Размер"
-                value={choices.size}
-                values={["medium", "small"]}
-                onChange={(value) => setChoices({ ...choices, size: value })}
-              />
-              <Choice
-                label="Навык"
-                value={choices.skill}
-                values={[
-                  "perception",
-                  "survival",
-                  "insight",
-                  "athletics",
-                  "arcana",
-                  "stealth",
-                ]}
-                onChange={(value) => setChoices({ ...choices, skill: value })}
-              />
-            </>
-          )}
           {raceId === "elf" && (
             <>
               <Choice
@@ -288,7 +253,7 @@ export function CharacterCreationWizard({
       )}
       {step === 4 && (
         <div className="roll-selection">
-          {(["standard", "random", "point_buy"] as const).map((value) => (
+          {(["standard", "random"] as const).map((value) => (
             <button
               className={method === value ? "active" : ""}
               onClick={() => setMethod(value)}
@@ -311,25 +276,6 @@ export function CharacterCreationWizard({
           Сервер выполнит шесть бросков 4d6, исключит один минимальный кубик и
           покажет все значения перед выбором способностей.
         </p>
-      )}
-      {step === 5 && method === "point_buy" && (
-        <div className="stack">
-          <strong>Потрачено: {spent} из 27</strong>
-          {statIds.map((stat) => (
-            <label key={stat}>
-              {statCatalog.find((item) => item.id === stat)?.name}
-              <input
-                type="number"
-                min="8"
-                max="15"
-                value={stats[stat]}
-                onChange={(event) =>
-                  setStats({ ...stats, [stat]: Number(event.target.value) })
-                }
-              />
-            </label>
-          ))}
-        </div>
       )}
       {step === 6 && (
         <div className="stack">
@@ -364,6 +310,7 @@ export function CharacterCreationWizard({
                   {statIds.map((stat) => (
                     <option value={stat} key={stat}>
                       {statCatalog.find((item) => item.id === stat)?.name ??
+                        statLabels[stat] ??
                         stat}
                     </option>
                   ))}
@@ -393,18 +340,15 @@ export function CharacterCreationWizard({
               <button
                 className="primary"
                 disabled={step === 0 && !name.trim()}
-                onClick={() =>
-                  setStep(step === 2 && !hasVariantStep ? 4 : step + 1)
-                }
+                onClick={() => setStep(step + 1)}
               >
-                Далее
+                {step === 3 ? "Подтвердить расу" : "Далее"}
               </button>
             ) : (
               <button
                 className="primary"
                 disabled={
                   pending ||
-                  (method === "point_buy" && spent !== 27) ||
                   new Set(
                     backgroundStats.slice(
                       0,
@@ -471,16 +415,16 @@ function choiceLabel(value: string) {
     athletics: "Атлетика",
     arcana: "Магия",
     stealth: "Скрытность",
-    white: "Белое",
-    bronze: "Бронзовое",
-    green: "Зелёное",
-    gold: "Золотое",
-    red: "Красное",
-    brass: "Латунное",
-    copper: "Медное",
-    silver: "Серебряное",
-    blue: "Синее",
-    black: "Чёрное",
+    white: "Белый дракон — Холод",
+    bronze: "Бронзовый дракон — Электричество",
+    green: "Зелёный дракон — Яд",
+    gold: "Золотой дракон — Огонь",
+    red: "Красный дракон — Огонь",
+    brass: "Латунный дракон — Огонь",
+    copper: "Медный дракон — Кислота",
+    silver: "Серебряный дракон — Холод",
+    blue: "Синий дракон — Электричество",
+    black: "Чёрный дракон — Кислота",
   };
   return labels[value] ?? value;
 }

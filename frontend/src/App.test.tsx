@@ -16,6 +16,8 @@ import { WelcomeScreen } from "./components/EntryScreens";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { HostDashboard } from "./components/HostDashboard";
 import { PlayerDashboard } from "./components/PlayerDashboard";
+import { HostCharactersPanel } from "./components/HostCharactersPanel";
+import { CharacterSheet } from "./components/CharacterSheet";
 
 const gmSnapshot: Snapshot = {
   cursor: 10,
@@ -43,8 +45,17 @@ const character: Character = {
   max_hp: 20,
   current_hp: 20,
   armor_class: 15,
-  stats: { might: 2, mind: 3 },
-  abilities: [],
+  stats: {
+    strength: 16,
+    dexterity: 12,
+    constitution: 14,
+    intelligence: 10,
+    wisdom: 8,
+    charisma: 13,
+  },
+  abilities: [
+    { id: "swift", name: "Swift", description: "Fast", kind: "talent" },
+  ],
   inventory: [
     { id: "rope", name: "Rope", quantity: 1, consumable: false, locked: false },
   ],
@@ -238,6 +249,77 @@ describe("local multiplayer interface", () => {
     );
   });
 
+  it("shows Russian stats and editable abilities without a checkbox table", async () => {
+    vi.spyOn(api, "characterOptions").mockResolvedValue({
+      races: [{ id: "human", name: "Человек", description: "", hp_bonus: 0 }],
+      classes: [
+        {
+          id: "fighter",
+          name: "Воин",
+          description: "",
+          base_hp: 10,
+          base_armor_class: 14,
+        },
+      ],
+      abilities: character.abilities,
+    });
+    vi.spyOn(api, "character").mockResolvedValue(character);
+    render(
+      <HostCharactersPanel
+        snapshot={{
+          ...gmSnapshot,
+          characters: [{ ...character, owner_name: "Mira", selected: true }],
+        }}
+        refresh={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /Aria/ }));
+    expect(await screen.findByText("Сила")).toBeInTheDocument();
+    expect(screen.getByText("Харизма")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Удалить" })).not.toHaveLength(
+      0,
+    );
+    expect(
+      screen.getByRole("button", { name: "Добавить способность" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Бонус владения")).not.toBeInTheDocument();
+    expect(screen.queryByText("Тёмное зрение")).not.toBeInTheDocument();
+  });
+
+  it("renders the character preview with the ready sheet structure", () => {
+    render(
+      <CharacterSheet
+        snapshot={playerSnapshot}
+        initial={character}
+        options={{
+          races: [
+            {
+              id: "human",
+              name: "Человек",
+              description: "Люди приспосабливаются к любым условиям.",
+              hp_bonus: 0,
+            },
+          ],
+          classes: [],
+          abilities: [],
+        }}
+        onRefresh={vi.fn()}
+        preview
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Сила")).toBeInTheDocument();
+    expect(screen.getByText("Харизма")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Человек" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Подтвердить персонажа" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Бонус владения")).not.toBeInTheDocument();
+    expect(screen.queryByText("Тёмное зрение")).not.toBeInTheDocument();
+  });
+
   it("starts the simple character flow", async () => {
     const withoutCharacter = {
       ...playerSnapshot,
@@ -277,7 +359,9 @@ describe("local multiplayer interface", () => {
       meta: { replayed: false },
     });
     render(<PlayerDashboard snapshot={withoutCharacter} refresh={vi.fn()} />);
-    await userEvent.click(screen.getByRole("button", { name: "На связи" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Личный кабинет" }),
+    );
     await userEvent.type(
       screen.getByLabelText(/имя нового персонажа/i),
       "Aria",
@@ -299,10 +383,10 @@ describe("local multiplayer interface", () => {
         refresh={vi.fn()}
       />,
     );
-    await userEvent.click(screen.getByText("Гоблин 1"));
+    await userEvent.click(document.querySelector(".initiative")!);
     await userEvent.clear(screen.getByLabelText("Величина эффекта"));
     await userEvent.type(screen.getByLabelText("Величина эффекта"), "4");
-    await userEvent.click(screen.getByRole("button", { name: "Урон" }));
+    await userEvent.click(screen.getByRole("button", { name: "Нанести урон" }));
     await waitFor(() =>
       expect(api.applyHealth).toHaveBeenCalledWith(
         combat,

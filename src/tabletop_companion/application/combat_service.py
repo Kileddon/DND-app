@@ -220,7 +220,7 @@ class CombatService:
         def operation(uow: CombatUnitOfWork) -> ResultData:
             combat = self._combat_for_command(uow, command)
             template = uow.get_monster_template(command.template_id)
-            if template.room_id != command.room_id or not 1 <= command.count <= 50:
+            if template.room_id != command.room_id or not 1 <= command.count <= 999:
                 raise DomainValidationError("Monster group is invalid.")
             now = self._clock()
             created: list[Combatant] = []

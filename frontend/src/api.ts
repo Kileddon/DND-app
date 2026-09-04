@@ -152,6 +152,7 @@ export interface CharacterOptions {
     theme: string;
     primary_stat: string;
     difficulty: string;
+    hit_die: number;
   }>;
   species?: Array<{
     id: string;

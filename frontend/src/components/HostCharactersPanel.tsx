@@ -7,6 +7,7 @@ import {
   type Snapshot,
 } from "../api";
 import { ErrorNotice } from "./ErrorNotice";
+import { statLabels } from "../viewRules";
 
 export function HostCharactersPanel({
   snapshot,
@@ -20,6 +21,7 @@ export function HostCharactersPanel({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [itemName, setItemName] = useState("");
+  const [addingAbility, setAddingAbility] = useState(false);
 
   useEffect(() => {
     api.characterOptions().then(setOptions).catch(setError);
@@ -57,15 +59,20 @@ export function HostCharactersPanel({
     setSelected((current) => (current ? { ...current, ...values } : current));
   }
 
-  function toggleAbility(abilityId: string) {
+  function addAbility(abilityId: string) {
     if (!selected || !options) return;
     const ability = options.abilities.find((item) => item.id === abilityId);
     if (!ability) return;
-    const hasAbility = selected.abilities.some((item) => item.id === abilityId);
+    if (!selected.abilities.some((item) => item.id === abilityId)) {
+      patch({ abilities: [...selected.abilities, ability] });
+    }
+    setAddingAbility(false);
+  }
+
+  function removeAbility(abilityId: string) {
+    if (!selected) return;
     patch({
-      abilities: hasAbility
-        ? selected.abilities.filter((item) => item.id !== abilityId)
-        : [...selected.abilities, ability],
+      abilities: selected.abilities.filter((item) => item.id !== abilityId),
     });
   }
 
@@ -115,11 +122,15 @@ export function HostCharactersPanel({
     }
   }
 
-  const availableAbilities = options?.abilities.filter(
-    (ability) =>
-      !ability.class_ids?.length ||
-      ability.class_ids.includes(selected?.class_id ?? ""),
-  );
+  const availableAbilities = options?.abilities
+    .filter(
+      (ability) =>
+        !ability.class_ids?.length ||
+        ability.class_ids.includes(selected?.class_id ?? ""),
+    )
+    .filter(
+      (ability) => !selected?.abilities.some((item) => item.id === ability.id),
+    );
 
   return (
     <section className="card stack span-2">
@@ -267,17 +278,6 @@ export function HostCharactersPanel({
                 />
               </label>
               <label>
-                Бонус владения
-                <input
-                  type="number"
-                  min="2"
-                  value={selected.proficiency_bonus ?? 2}
-                  onChange={(e) =>
-                    patch({ proficiency_bonus: Number(e.target.value) })
-                  }
-                />
-              </label>
-              <label>
                 Размер
                 <select
                   value={selected.size ?? "medium"}
@@ -296,23 +296,12 @@ export function HostCharactersPanel({
                   onChange={(e) => patch({ speed: Number(e.target.value) })}
                 />
               </label>
-              <label>
-                Тёмное зрение
-                <input
-                  type="number"
-                  min="0"
-                  value={selected.darkvision ?? 0}
-                  onChange={(e) =>
-                    patch({ darkvision: Number(e.target.value) })
-                  }
-                />
-              </label>
             </div>
             <h3>Характеристики</h3>
             <div className="form-grid three">
               {Object.entries(selected.stats).map(([key, value]) => (
                 <label key={key}>
-                  {key}
+                  {statLabels[key] ?? key}
                   <input
                     type="number"
                     min="1"
@@ -331,23 +320,45 @@ export function HostCharactersPanel({
               ))}
             </div>
             <h3>Способности класса</h3>
-            <div className="ability-checklist">
-              {availableAbilities?.map((ability) => (
-                <label key={ability.id}>
-                  <input
-                    type="checkbox"
-                    checked={selected.abilities.some(
-                      (item) => item.id === ability.id,
-                    )}
-                    onChange={() => toggleAbility(ability.id)}
-                  />
+            <div className="abilities gm-abilities">
+              {selected.abilities.map((ability) => (
+                <article key={ability.id}>
                   <span>
                     <strong>{ability.name}</strong>
                     <small>{ability.description}</small>
                   </span>
-                </label>
+                  <button
+                    className="danger-text"
+                    onClick={() => removeAbility(ability.id)}
+                  >
+                    Удалить
+                  </button>
+                </article>
               ))}
             </div>
+            <button
+              className="secondary"
+              onClick={() => setAddingAbility(true)}
+            >
+              Добавить способность
+            </button>
+            {addingAbility && (
+              <div
+                className="compact-dialog"
+                role="dialog"
+                aria-label="Добавление способности"
+              >
+                {availableAbilities?.map((ability) => (
+                  <button
+                    key={ability.id}
+                    onClick={() => addAbility(ability.id)}
+                  >
+                    {ability.name}
+                  </button>
+                ))}
+                <button onClick={() => setAddingAbility(false)}>Закрыть</button>
+              </div>
+            )}
             <h3>Инвентарь</h3>
             {selected.inventory.map((item) => (
               <div className="inventory-row" key={item.id}>

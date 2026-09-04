@@ -12,6 +12,7 @@ import { CharacterCreationWizard } from "./CharacterCreationWizard";
 import { CharacterSheet } from "./CharacterSheet";
 import { DicePanel } from "./DicePanel";
 import { ErrorNotice } from "./ErrorNotice";
+import { abilityModifierValue } from "../viewRules";
 
 type PlayerSection = "lobby" | "character" | "dice";
 
@@ -33,6 +34,15 @@ export function PlayerDashboard({
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
+  const draftReady = Boolean(
+    draft &&
+    new Set(draft.chosen_cards.map((card) => card.id)).size >=
+      draft.required_rounds,
+  );
+  const previewCharacter =
+    draft && options && draftReady
+      ? makePreviewCharacter(draft, options, player.id)
+      : undefined;
 
   useEffect(() => {
     api.characterOptions().then(setOptions).catch(setError);
@@ -125,7 +135,7 @@ export function PlayerDashboard({
           className="secondary cabinet-toggle"
           onClick={() => setCabinetOpen(true)}
         >
-          На связи
+          Личный кабинет
         </button>
       </header>
       <nav className="dashboard-nav" aria-label="Разделы игрока">
@@ -223,7 +233,7 @@ export function PlayerDashboard({
             {Math.min(draft.completed_rounds + 1, draft.required_rounds)} из{" "}
             {draft.required_rounds}
           </div>
-          {!draft.ready_to_confirm && <h2>Выберите способность</h2>}
+          {!draftReady && <h2>Выберите способность</h2>}
           {draft.random_rolls?.length ? (
             <div className="roll-attempts">
               {draft.random_rolls.map((roll, index) => (
@@ -233,38 +243,31 @@ export function PlayerDashboard({
               ))}
             </div>
           ) : null}
-          <div className="ability-grid">
-            {draft.offered_cards.map((card) => (
-              <button
-                className="ability-card"
-                disabled={pending}
-                onClick={() => choose(card.id)}
-                key={card.id}
-              >
-                <span className="ability-kind">Плейсхолдер</span>
-                <strong>{card.name}</strong>
-                <span>{card.description}</span>
-              </button>
-            ))}
-          </div>
-          {draft.ready_to_confirm && (
-            <>
-              <h3>Итоговый просмотр</h3>
-              <div className="stats">
-                {Object.entries(draft.stats ?? {}).map(([stat, value]) => (
-                  <div key={stat}>
-                    <span>
-                      {options?.stats?.find((item) => item.id === stat)?.name ??
-                        stat}
-                    </span>
-                    <strong>{value}</strong>
-                  </div>
-                ))}
-              </div>
-              <button className="primary" disabled={pending} onClick={confirm}>
-                Подтвердить персонажа
-              </button>
-            </>
+          {!draftReady && (
+            <div className="ability-grid">
+              {draft.offered_cards.map((card) => (
+                <button
+                  className="ability-card"
+                  disabled={pending}
+                  onClick={() => choose(card.id)}
+                  key={card.id}
+                >
+                  <span className="ability-kind">Плейсхолдер</span>
+                  <strong>{card.name}</strong>
+                  <span>{card.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {previewCharacter && options && (
+            <CharacterSheet
+              snapshot={snapshot}
+              initial={previewCharacter}
+              options={options}
+              onRefresh={() => undefined}
+              preview
+              onConfirm={() => void confirm()}
+            />
           )}
         </section>
       )}
@@ -286,4 +289,49 @@ export function PlayerDashboard({
       )}
     </main>
   );
+}
+
+function makePreviewCharacter(
+  draft: CharacterDraft,
+  options: CharacterOptions,
+  ownerId: string,
+): Character {
+  const stats = draft.stats ?? {};
+  const species = options.species?.find((item) => item.id === draft.race_id);
+  const characterClass = options.class_details?.find(
+    (item) => item.id === draft.class_id,
+  );
+  const constitutionValue = abilityModifierValue(
+    Number(stats.constitution ?? 10),
+  );
+  const initiative = abilityModifierValue(Number(stats.dexterity ?? 10));
+  const maxHp = Math.max(
+    1,
+    (characterClass?.hit_die ?? 8) +
+      constitutionValue +
+      (draft.race_id === "dwarf" ? 1 : 0),
+  );
+  return {
+    id: `preview-${draft.id}`,
+    name: draft.name,
+    race_id: draft.race_id,
+    class_id: draft.class_id,
+    max_hp: maxHp,
+    current_hp: maxHp,
+    temporary_hp: 0,
+    armor_class: 10 + initiative,
+    initiative,
+    owner_id: ownerId,
+    stats,
+    abilities: draft.chosen_cards,
+    inventory: [],
+    version: draft.version,
+    level: 1,
+    experience: 0,
+    size: draft.species_choices?.size ?? species?.sizes[0] ?? "medium",
+    speed: species?.speed ?? 30,
+    species_choices: draft.species_choices ?? {},
+    persistent_conditions: [],
+    total_weight: "0",
+  };
 }

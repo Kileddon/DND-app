@@ -85,7 +85,7 @@ class MonsterTemplateRequest(CommandRequest):
 class AddMonstersRequest(CombatVersionRequest):
     template_id: UUID
     initiative: int = Field(ge=-100, le=100)
-    count: int = Field(default=1, ge=1, le=50)
+    count: int = Field(default=1, ge=1, le=999)
     grouped: bool = False
 
 

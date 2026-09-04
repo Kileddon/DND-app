@@ -4,6 +4,7 @@ test("GM and player complete the local multiplayer slice", async ({
   page,
   browser,
 }) => {
+  test.setTimeout(120_000);
   const campaign = `E2E ${Date.now()}`;
   await page.goto("/");
   await page.getByRole("link", { name: "Создать комнату" }).click();
@@ -26,7 +27,9 @@ test("GM and player complete the local multiplayer slice", async ({
   await player.getByLabel("Имя за столом").fill("Mira");
   await player.getByRole("button", { name: "Войти в комнату" }).click();
 
-  await player.getByRole("button", { name: "На связи", exact: true }).click();
+  await player
+    .getByRole("button", { name: "Личный кабинет", exact: true })
+    .click();
   await expect(
     player.getByRole("button", { name: "Бой", exact: true }),
   ).toHaveCount(0);
@@ -38,7 +41,11 @@ test("GM and player complete the local multiplayer slice", async ({
     )
     .toBe(true);
   await player.getByLabel("Имя нового персонажа").fill("Aria");
-  for (let step = 0; step < 6; step += 1) {
+  for (let step = 0; step < 3; step += 1) {
+    await player.getByRole("button", { name: "Далее" }).click();
+  }
+  await player.getByRole("button", { name: "Подтвердить расу" }).click();
+  for (let step = 0; step < 2; step += 1) {
     await player.getByRole("button", { name: "Далее" }).click();
   }
   await player
@@ -47,8 +54,30 @@ test("GM and player complete the local multiplayer slice", async ({
   for (let round = 0; round < 4; round += 1) {
     await player.locator(".ability-card").first().click();
   }
+  await expect(player.getByText("Сила", { exact: true })).toBeVisible();
+  await player.screenshot({
+    path: "test-results/corrective-visual/player-preview-390.png",
+    fullPage: true,
+  });
+  await player.setViewportSize({ width: 360, height: 800 });
+  await expect
+    .poll(() =>
+      player.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    )
+    .toBe(true);
+  await player.screenshot({
+    path: "test-results/corrective-visual/player-preview-360.png",
+    fullPage: true,
+  });
+  await player.setViewportSize({ width: 390, height: 844 });
   await player.getByRole("button", { name: "Подтвердить персонажа" }).click();
   await expect(player.getByText("Aria", { exact: true })).toBeVisible();
+  await player
+    .getByRole("dialog", { name: "Личный кабинет" })
+    .getByRole("button", { name: "Закрыть" })
+    .click();
 
   await expect(page.getByText("Mira")).toBeVisible();
   await page.getByRole("button", { name: "Новая сессия" }).click();
@@ -66,16 +95,32 @@ test("GM and player complete the local multiplayer slice", async ({
   await expect(
     page.locator(".initiative-list").getByText("Aria", { exact: true }),
   ).toBeVisible();
+  await page.screenshot({
+    path: "test-results/corrective-visual/gm-combat-form.png",
+    fullPage: true,
+  });
   await page.getByLabel("Имя монстра").fill("Гоблин");
   await page.getByLabel("HP монстра").fill("10");
   await page.getByLabel("Количество монстров").fill("2");
-  await page.getByRole("button", { name: "Добавить монстров" }).click();
-  await expect(page.getByText("Группа: 2")).toBeVisible();
+  await page.getByLabel("Раса(ы)").fill("Гоблиноид");
+  await page
+    .locator(".combat-monster-form")
+    .getByRole("button", { name: "Добавить", exact: true })
+    .click();
+  await expect(page.getByText("2 участника")).toBeVisible();
+  await page.screenshot({
+    path: "test-results/corrective-visual/gm-combat-list.png",
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "Начать бой" }).click();
 
-  await page.locator(".target").filter({ hasText: "Гоблин 1" }).click();
+  await page.locator(".initiative").filter({ hasText: "Гоблин" }).click();
   await page.getByLabel("Величина эффекта").fill("6");
-  await page.getByRole("button", { name: "Урон" }).click();
+  await page.getByRole("button", { name: "Нанести урон" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Закрыть" })
+    .click();
   await page.getByRole("button", { name: "Следующий ход" }).click();
   await player.getByRole("button", { name: "Кубики", exact: true }).click();
   await player.getByRole("button", { name: "С преимуществом" }).click();
@@ -90,6 +135,13 @@ test("GM and player complete the local multiplayer slice", async ({
   await expect(
     page.getByText("БОЙ · COMPLETED", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Персонажи", exact: true }).click();
+  await page.getByRole("button", { name: /Aria/ }).click();
+  await expect(page.getByText("Сила", { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: "test-results/corrective-visual/gm-character-card.png",
+    fullPage: true,
+  });
 
   await player.getByRole("button", { name: "Персонаж", exact: true }).click();
   await player.getByPlaceholder("Новый предмет").fill("Rope");

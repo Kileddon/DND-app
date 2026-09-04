@@ -8,7 +8,11 @@ import {
   type Snapshot,
 } from "../api";
 import { ErrorNotice } from "./ErrorNotice";
-import { visibleOtherSlotCount } from "../viewRules";
+import {
+  abilityModifier,
+  statLabels,
+  visibleOtherSlotCount,
+} from "../viewRules";
 
 const slotLabels: Record<string, string> = {
   left_hand: "Левая рука",
@@ -27,12 +31,6 @@ interface FeatureView {
   required_level: number;
 }
 
-function modifier(value: number) {
-  if (!Number.isFinite(value)) return "+0";
-  const result = Math.floor((value - 10) / 2);
-  return result >= 0 ? `+${result}` : `${result}`;
-}
-
 function sizeLabel(size?: string) {
   return size === "small" ? "Маленький" : size === "medium" ? "Средний" : size;
 }
@@ -48,15 +46,20 @@ export function CharacterSheet({
   initial,
   options,
   onRefresh,
+  preview = false,
+  onConfirm,
 }: {
   snapshot: Snapshot;
   initial: Character;
   options?: CharacterOptions;
   onRefresh: () => void;
+  preview?: boolean;
+  onConfirm?: () => void;
 }) {
   const player = snapshot.player!;
   const [character, setCharacter] = useState(initial);
   const [feature, setFeature] = useState<FeatureView>();
+  const [raceInfoOpen, setRaceInfoOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [itemName, setItemName] = useState("");
   const [weight, setWeight] = useState("0");
@@ -65,12 +68,27 @@ export function CharacterSheet({
   const [selectedSlot, setSelectedSlot] = useState<string>();
   const [error, setError] = useState<unknown>();
   const [pending, setPending] = useState(false);
-  const species = options?.species?.find(
+  const detailedSpecies = options?.species?.find(
     (item) => item.id === character.race_id,
   );
+  const simpleRace = options?.races.find(
+    (item) => item.id === character.race_id,
+  );
+  const species =
+    detailedSpecies ??
+    (simpleRace
+      ? {
+          ...simpleRace,
+          creature_type: "Гуманоид",
+          speed: character.speed ?? 30,
+          features: [],
+        }
+      : undefined);
   const className =
     options?.class_details?.find((item) => item.id === character.class_id)
-      ?.name ?? character.class_id;
+      ?.name ??
+    options?.classes.find((item) => item.id === character.class_id)?.name ??
+    character.class_id;
   const slots = [
     "left_hand",
     "right_hand",
@@ -133,8 +151,11 @@ export function CharacterSheet({
           </div>
         </div>
         <p>
-          {species?.name ?? character.race_id} · {className} · уровень{" "}
-          {character.level ?? 1} · {character.experience ?? 0} опыта
+          <button className="race-name" onClick={() => setRaceInfoOpen(true)}>
+            {species?.name ?? character.race_id}
+          </button>{" "}
+          · {className} · уровень {character.level ?? 1} ·{" "}
+          {character.experience ?? 0} опыта
         </p>
         <div className="vitals">
           <strong>
@@ -142,21 +163,22 @@ export function CharacterSheet({
           </strong>
           <strong>Временные HP {character.temporary_hp ?? 0}</strong>
           <strong>КБ {character.armor_class}</strong>
-          <strong>Инициатива {modifier(character.stats.dexterity)}</strong>
+          <strong>
+            Инициатива {abilityModifier(character.stats.dexterity)}
+          </strong>
         </div>
         <p>
           Размер: {sizeLabel(character.size)} · Скорость: {character.speed}{" "}
-          футов · Тёмное зрение: {character.darkvision || "нет"} · Бонус
-          владения: +{character.proficiency_bonus ?? 2}
+          футов
         </p>
         <div className="stats">
           {Object.entries(character.stats).map(([id, value]) => {
             const stat = options?.stats?.find((item) => item.id === id);
             return (
               <button className="stat-card" key={id} title={stat?.description}>
-                <span>{stat?.name ?? id}</span>
+                <span>{stat?.name ?? statLabels[id] ?? id}</span>
                 <strong>{value}</strong>
-                <small>{modifier(value)}</small>
+                <small>{abilityModifier(value)}</small>
               </button>
             );
           })}
@@ -185,9 +207,14 @@ export function CharacterSheet({
             </article>
           ))}
         </div>
-        <button className="danger-text" onClick={() => setConfirmArchive(true)}>
-          Архивировать персонажа
-        </button>
+        {!preview && (
+          <button
+            className="danger-text"
+            onClick={() => setConfirmArchive(true)}
+          >
+            Архивировать персонажа
+          </button>
+        )}
         <ErrorNotice error={error} />
       </section>
       <section className="card stack backpack">
@@ -291,37 +318,44 @@ export function CharacterSheet({
         {!character.inventory.length && (
           <p className="muted">Инвентарь пуст.</p>
         )}
-        <form className="stack compact" onSubmit={addItem}>
-          <input
-            placeholder="Новый предмет"
-            value={itemName}
-            onChange={(event) => setItemName(event.target.value)}
-            required
-          />
-          <input
-            aria-label="Вес предмета"
-            value={weight}
-            onChange={(event) => setWeight(event.target.value)}
-            pattern="\d+(\.\d{1,3})?"
-          />
-          <select
-            aria-label="Тип слота"
-            value={compatibility}
-            onChange={(event) =>
-              setCompatibility(
-                event.target.value as InventoryItem["slot_compatibility"],
-              )
-            }
-          >
-            <option value="none">Только рюкзак</option>
-            <option value="hand">Рука</option>
-            <option value="armor">Доспех</option>
-            <option value="other">Иное</option>
-          </select>
-          <button className="secondary" disabled={pending}>
-            Добавить
+        {!preview && (
+          <form className="stack compact" onSubmit={addItem}>
+            <input
+              placeholder="Новый предмет"
+              value={itemName}
+              onChange={(event) => setItemName(event.target.value)}
+              required
+            />
+            <input
+              aria-label="Вес предмета"
+              value={weight}
+              onChange={(event) => setWeight(event.target.value)}
+              pattern="\d+(\.\d{1,3})?"
+            />
+            <select
+              aria-label="Тип слота"
+              value={compatibility}
+              onChange={(event) =>
+                setCompatibility(
+                  event.target.value as InventoryItem["slot_compatibility"],
+                )
+              }
+            >
+              <option value="none">Только рюкзак</option>
+              <option value="hand">Рука</option>
+              <option value="armor">Доспех</option>
+              <option value="other">Иное</option>
+            </select>
+            <button className="secondary" disabled={pending}>
+              Добавить
+            </button>
+          </form>
+        )}
+        {preview && (
+          <button className="primary" onClick={onConfirm}>
+            Подтвердить персонажа
           </button>
-        </form>
+        )}
       </section>
       {feature && (
         <div className="dice-overlay" role="dialog" aria-modal="true">
@@ -334,6 +368,29 @@ export function CharacterSheet({
                 : `Откроется на уровне ${feature.required_level}`}
             </strong>
             <button onClick={() => setFeature(undefined)}>Закрыть</button>
+          </div>
+        </div>
+      )}
+      {raceInfoOpen && species && (
+        <div className="dice-overlay" role="dialog" aria-modal="true">
+          <div className="dice-animation-card race-info">
+            <h2>{species.name}</h2>
+            <p>{species.description}</p>
+            <p>
+              Тип: {species.creature_type}. Скорость: {species.speed} футов.
+            </p>
+            <div className="feature-buttons">
+              {species.features.map((item) => (
+                <button
+                  className="secondary"
+                  key={item.id}
+                  onClick={() => setFeature(item)}
+                >
+                  {item.name}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setRaceInfoOpen(false)}>Закрыть</button>
           </div>
         </div>
       )}
