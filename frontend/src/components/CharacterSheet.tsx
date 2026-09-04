@@ -4,7 +4,6 @@ import {
   api,
   type Character,
   type CharacterOptions,
-  type CharacterSummary,
   type InventoryItem,
   type Snapshot,
 } from "../api";
@@ -111,15 +110,6 @@ export function CharacterSheet({
     setItemName("");
   }
 
-  async function select(summary: CharacterSummary) {
-    try {
-      await api.selectCharacter(snapshot.current_device_id, player, summary.id);
-      onRefresh();
-    } catch (reason) {
-      setError(reason);
-    }
-  }
-
   async function equip(slot: string, item: InventoryItem) {
     await run(() =>
       api.equipItem(
@@ -141,22 +131,6 @@ export function CharacterSheet({
             <p className="eyebrow">ЛИСТ ПЕРСОНАЖА</p>
             <h2>{character.name}</h2>
           </div>
-          <select
-            aria-label="Переключить персонажа"
-            value={character.id}
-            onChange={(event) => {
-              const target = snapshot.characters?.find(
-                (item) => item.id === event.target.value,
-              );
-              if (target) void select(target);
-            }}
-          >
-            {snapshot.characters?.map((item) => (
-              <option value={item.id} key={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
         </div>
         <p>
           {species?.name ?? character.race_id} · {className} · уровень{" "}
@@ -220,23 +194,6 @@ export function CharacterSheet({
         <p className="eyebrow">РЮКЗАК И ЭКИПИРОВКА</p>
         <h2>Общий вес: {character.total_weight} кг</h2>
         <div className="equipment-layout">
-          <div className="humanoid" aria-label="Схема экипировки персонажа">
-            <span aria-hidden="true">
-              ◯<br />
-              ╱▣╲
-              <br />╱ ╲
-            </span>
-            {slots.map((slot) => (
-              <button
-                className="equipment-hotspot"
-                key={slot}
-                onClick={() => setSelectedSlot(slot)}
-                title={`Выбрать слот: ${slotLabels[slot]}`}
-              >
-                {slotLabels[slot]}
-              </button>
-            ))}
-          </div>
           <div className="equipment-slots">
             {slots.map((slot) => {
               const item = character.inventory.find(

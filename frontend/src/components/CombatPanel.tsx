@@ -53,10 +53,11 @@ export function HostCombatPanel({
   const [monsterCount, setMonsterCount] = useState(1);
   const [monsterSpecies, setMonsterSpecies] = useState("");
   const [monsterAbilities, setMonsterAbilities] = useState("");
-  const [monsterDamage, setMonsterDamage] = useState("");
+  const [monsterDamage] = useState("");
   const [monsterNotes, setMonsterNotes] = useState("");
-  const [monsterItems, setMonsterItems] = useState("");
+  const [monsterItems] = useState("");
   const [monsterImage, setMonsterImage] = useState("");
+  const [monsterFormOpen, setMonsterFormOpen] = useState(false);
   const [condition, setCondition] = useState("Сбит с ног");
   const [persistentCondition, setPersistentCondition] = useState(false);
   const [critical, setCritical] = useState(false);
@@ -304,103 +305,108 @@ export function HostCombatPanel({
             Добавить выбранных персонажей
           </button>
           {combat.status === "PREPARATION" && (
-            <form
-              className="inline-form combat-monster-form"
-              onSubmit={addMonster}
-            >
-              <input
-                aria-label="Имя монстра"
-                value={monsterName}
-                onChange={(event) => setMonsterName(event.target.value)}
-                required
-              />
-              <input
-                aria-label="HP монстра"
-                type="number"
-                min="1"
-                value={monsterHp}
-                onChange={(event) => setMonsterHp(Number(event.target.value))}
-                required
-              />
-              <input
-                aria-label="Класс брони монстра"
-                type="number"
-                min="0"
-                value={monsterArmor}
-                onChange={(event) =>
-                  setMonsterArmor(Number(event.target.value))
-                }
-                required
-              />
-              <input
-                aria-label="Количество монстров"
-                type="number"
-                min="1"
-                max="20"
-                value={monsterCount}
-                onChange={(event) =>
-                  setMonsterCount(Number(event.target.value))
-                }
-                required
-              />
-              <input
-                aria-label="Вид монстра"
-                placeholder="Вид"
-                value={monsterSpecies}
-                onChange={(event) => setMonsterSpecies(event.target.value)}
-              />
-              <input
-                aria-label="Изображение монстра"
-                placeholder="Ссылка на изображение"
-                value={monsterImage}
-                onChange={(event) => setMonsterImage(event.target.value)}
-              />
-              <label className="upload-control">
-                Загрузить изображение с компьютера
-                <input
-                  aria-label="Загрузить изображение с компьютера"
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void uploadMonsterImage(file);
-                  }}
-                />
-              </label>
-              {monsterImage && (
-                <div className="monster-preview">
-                  <img src={monsterImage} alt="Миниатюра сущности" />
-                  <button type="button" onClick={() => setMonsterImage("")}>
-                    Удалить изображение
-                  </button>
+            <>
+              <button
+                className="secondary mobile-add-entity"
+                onClick={() => setMonsterFormOpen(true)}
+              >
+                Добавить сущность
+              </button>
+              <form
+                className={`combat-monster-form ${monsterFormOpen ? "open" : ""}`}
+                onSubmit={addMonster}
+              >
+                <div className="monster-form-head">
+                  <span>Изображение</span>
+                  <span>Имя</span>
+                  <span>HP</span>
+                  <span>КБ</span>
+                  <span>Кол-во</span>
+                  <span>Раса(ы)</span>
+                  <span>Способности</span>
+                  <span>Заметки</span>
+                  <span>Добавить</span>
                 </div>
-              )}
-              <textarea
-                aria-label="Способности монстра"
-                placeholder="Способности"
-                value={monsterAbilities}
-                onChange={(event) => setMonsterAbilities(event.target.value)}
-              />
-              <textarea
-                aria-label="Урон монстра"
-                placeholder="Атаки и урон"
-                value={monsterDamage}
-                onChange={(event) => setMonsterDamage(event.target.value)}
-              />
-              <textarea
-                aria-label="Предметы монстра"
-                placeholder="Предметы"
-                value={monsterItems}
-                onChange={(event) => setMonsterItems(event.target.value)}
-              />
-              <textarea
-                aria-label="Заметки о монстре"
-                placeholder="Заметки"
-                value={monsterNotes}
-                onChange={(event) => setMonsterNotes(event.target.value)}
-              />
-              <button className="secondary">Добавить монстров</button>
-            </form>
+                <input
+                  aria-label="Имя монстра"
+                  value={monsterName}
+                  onChange={(event) => setMonsterName(event.target.value)}
+                  required
+                />
+                <input
+                  aria-label="HP монстра"
+                  type="number"
+                  min="1"
+                  value={monsterHp}
+                  onChange={(event) => setMonsterHp(Number(event.target.value))}
+                  required
+                />
+                <input
+                  aria-label="Класс брони монстра"
+                  type="number"
+                  min="0"
+                  value={monsterArmor}
+                  onChange={(event) =>
+                    setMonsterArmor(Number(event.target.value))
+                  }
+                  required
+                />
+                <input
+                  aria-label="Количество монстров"
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={monsterCount}
+                  onChange={(event) =>
+                    setMonsterCount(Number(event.target.value))
+                  }
+                  required
+                />
+                <input
+                  aria-label="Вид монстра"
+                  placeholder="Вид"
+                  value={monsterSpecies}
+                  onChange={(event) => setMonsterSpecies(event.target.value)}
+                />
+                <label className="upload-control">
+                  {monsterImage ? (
+                    <img src={monsterImage} alt="Миниатюра сущности" />
+                  ) : (
+                    "Файл"
+                  )}
+                  <input
+                    aria-label="Загрузить изображение с компьютера"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadMonsterImage(file);
+                    }}
+                  />
+                </label>
+                <input
+                  aria-label="Способности монстра"
+                  placeholder="Способности"
+                  value={monsterAbilities}
+                  onChange={(event) => setMonsterAbilities(event.target.value)}
+                />
+                <input
+                  aria-label="Заметки о монстре"
+                  placeholder="Заметки"
+                  value={monsterNotes}
+                  onChange={(event) => setMonsterNotes(event.target.value)}
+                />
+                <button className="secondary">Добавить</button>
+                {monsterFormOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setMonsterFormOpen(false)}
+                  >
+                    Отмена
+                  </button>
+                )}
+              </form>
+            </>
           )}
         </div>
       )}
@@ -462,7 +468,7 @@ export function HostCombatPanel({
 
       {combat.status !== "COMPLETED" && (
         <div className="combat-resolution">
-          <h3>Разрешить действие</h3>
+          <h3>Действие</h3>
           <div className="target-grid">
             {combat.combatants.map((item) => (
               <label

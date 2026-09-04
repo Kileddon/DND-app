@@ -26,7 +26,7 @@ test("GM and player complete the local multiplayer slice", async ({
   await player.getByLabel("Имя за столом").fill("Mira");
   await player.getByRole("button", { name: "Войти в комнату" }).click();
 
-  await player.getByRole("button", { name: "Кабинет", exact: true }).click();
+  await player.getByRole("button", { name: "На связи", exact: true }).click();
   await expect(
     player.getByRole("button", { name: "Бой", exact: true }),
   ).toHaveCount(0);
@@ -54,7 +54,7 @@ test("GM and player complete the local multiplayer slice", async ({
   await page.getByRole("button", { name: "Новая сессия" }).click();
   await page.getByRole("button", { name: "Открыть лобби" }).click();
   await page.getByRole("button", { name: "Начать игру" }).click();
-  await expect(player.getByText("ACTIVE")).toBeVisible();
+  await expect(player.getByText("ACTIVE", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Бой", exact: true }).click();
   await page.getByPlaceholder("Название нового энкаунтера").fill("Засада");

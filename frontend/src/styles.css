@@ -515,7 +515,48 @@ fieldset {
   border-radius: 10px;
 }
 .combat-monster-form {
-  grid-template-columns: 2fr 1fr 1fr auto;
+  display: grid;
+  grid-template-columns:
+    minmax(44px, 0.45fr) minmax(7rem, 1.2fr) minmax(3.5rem, 0.5fr)
+    minmax(3.5rem, 0.5fr) minmax(3.5rem, 0.5fr) minmax(6rem, 0.9fr) minmax(
+      7rem,
+      1fr
+    )
+    minmax(7rem, 1fr) auto;
+  gap: 0.4rem;
+  align-items: end;
+}
+.monster-form-head {
+  display: contents;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.combat-monster-form input {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.45rem;
+}
+.combat-monster-form textarea {
+  display: none;
+}
+.upload-control {
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.upload-control img {
+  width: 38px;
+  height: 38px;
+  object-fit: cover;
+  border-radius: 0.35rem;
+}
+.upload-control input {
+  width: 100%;
+  font-size: 0.6rem;
+}
+.mobile-add-entity {
+  display: none;
 }
 .initiative-list,
 .target-grid,
@@ -737,6 +778,27 @@ textarea {
   .target-grid {
     grid-template-columns: 1fr;
   }
+  .mobile-add-entity {
+    display: inline-flex;
+  }
+  .combat-monster-form {
+    display: none;
+  }
+  .combat-monster-form.open {
+    display: grid;
+    position: fixed;
+    inset: 1rem;
+    z-index: 60;
+    overflow: auto;
+    padding: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--gold);
+    border-radius: 1rem;
+    grid-template-columns: 1fr;
+  }
+  .combat-monster-form.open .monster-form-head {
+    display: none;
+  }
   .combat-heading {
     align-items: flex-start;
     flex-direction: column;
@@ -774,11 +836,37 @@ textarea {
 .class-choice-table {
   display: grid;
   gap: 0.5rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1fr;
+}
+.class-choice-head,
+.class-choice-table button {
+  display: grid;
+  grid-template-columns:
+    minmax(5rem, 0.8fr) minmax(6rem, 1.2fr) minmax(5rem, 1fr)
+    minmax(4rem, 0.6fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+.class-choice-head {
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding: 0 0.8rem;
 }
 .class-choice-table button {
-  min-height: 7.5rem;
+  min-height: 56px;
   text-align: left;
+}
+.class-choice-table button > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.race-choice-grid .option-card {
+  align-items: center;
+  flex-direction: column;
+  text-align: center;
+}
+.race-choice-grid .option-card small {
+  overflow-wrap: anywhere;
 }
 .race-choice-grid {
   display: grid;
@@ -786,9 +874,12 @@ textarea {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 @media (max-width: 700px) {
-  .class-choice-table,
-  .race-choice-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .class-choice-head,
+  .class-choice-table button {
+    grid-template-columns:
+      minmax(3.7rem, 0.8fr) minmax(4rem, 1.2fr) minmax(3.5rem, 1fr)
+      minmax(3rem, 0.6fr);
+    font-size: 0.72rem;
   }
 }
 .dashboard-nav::after {
@@ -843,17 +934,6 @@ textarea {
   height: 44px;
   border-radius: 0.5rem;
   object-fit: cover;
-}
-.humanoid {
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.equipment-hotspot {
-  font-size: 0.72rem;
-  min-height: 32px;
-  padding: 0.25rem 0.5rem;
 }
 .equipment-picker {
   align-items: center;
@@ -1062,15 +1142,8 @@ textarea {
 }
 
 .equipment-layout {
-  grid-template-columns: minmax(5rem, 0.35fr) 1fr;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-}
-
-.humanoid {
-  font-size: 2.8rem;
-  line-height: 1.15;
-  text-align: center;
-  white-space: nowrap;
 }
 
 .equipment-slots {
@@ -1080,12 +1153,32 @@ textarea {
 
 .equipment-slot {
   display: grid;
-  grid-template-columns: minmax(6rem, 0.6fr) 1fr auto;
+  grid-template-columns: minmax(5rem, 0.6fr) minmax(0, 1fr) auto;
   gap: 0.5rem;
   align-items: center;
   padding: 0.6rem;
   border: 1px solid var(--border);
   border-radius: 0.65rem;
+}
+.player-grid > *,
+.character-sheet,
+.card,
+.equipment-slot,
+.inventory-row {
+  min-width: 0;
+  max-width: 100%;
+}
+.inventory-row strong,
+.equipment-slot span {
+  overflow-wrap: anywhere;
+}
+.cabinet-panel {
+  position: fixed;
+  inset: 1rem;
+  z-index: 40;
+  overflow: auto;
+  max-width: 42rem;
+  margin: auto;
 }
 
 @media (max-width: 640px) {

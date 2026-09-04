@@ -13,7 +13,7 @@ import { CharacterSheet } from "./CharacterSheet";
 import { DicePanel } from "./DicePanel";
 import { ErrorNotice } from "./ErrorNotice";
 
-type PlayerSection = "lobby" | "cabinet" | "character" | "dice";
+type PlayerSection = "lobby" | "character" | "dice";
 
 export function PlayerDashboard({
   snapshot,
@@ -24,6 +24,7 @@ export function PlayerDashboard({
 }) {
   const player = snapshot.player!;
   const [section, setSection] = useState<PlayerSection>("lobby");
+  const [cabinetOpen, setCabinetOpen] = useState(false);
   const [draft, setDraft] = useState<CharacterDraft>();
   const [character, setCharacter] = useState<Character>();
   const [options, setOptions] = useState<CharacterOptions>();
@@ -120,12 +121,17 @@ export function PlayerDashboard({
         <div className="session-pill">
           {snapshot.session?.status ?? "Ожидаем лобби"}
         </div>
+        <button
+          className="secondary cabinet-toggle"
+          onClick={() => setCabinetOpen(true)}
+        >
+          На связи
+        </button>
       </header>
       <nav className="dashboard-nav" aria-label="Разделы игрока">
         {(
           [
             ["lobby", "Лобби"],
-            ["cabinet", "Кабинет"],
             ["character", "Персонаж"],
             ["dice", "Кубики"],
           ] as const
@@ -156,13 +162,20 @@ export function PlayerDashboard({
       {section === "dice" && (
         <DicePanel snapshot={snapshot} refresh={refresh} />
       )}
-      {section === "cabinet" && !draft && !creating && (
-        <section className="card stack span-2">
+      {cabinetOpen && !draft && !creating && (
+        <section
+          className="card stack span-2 cabinet-panel"
+          role="dialog"
+          aria-label="Личный кабинет"
+        >
           <div className="section-heading">
             <h2>Мои персонажи</h2>
-            <button className="primary" onClick={() => setCreating(true)}>
-              Создать нового
-            </button>
+            <div className="inline-actions">
+              <button className="primary" onClick={() => setCreating(true)}>
+                Создать нового
+              </button>
+              <button onClick={() => setCabinetOpen(false)}>Закрыть</button>
+            </div>
           </div>
           <div className="option-list">
             {snapshot.characters?.map((summary) => (
@@ -196,21 +209,21 @@ export function PlayerDashboard({
           )}
         </section>
       )}
-      {section === "cabinet" && creating && !draft && options && (
+      {cabinetOpen && creating && !draft && options && (
         <CharacterCreationWizard
           deviceId={snapshot.current_device_id}
           options={options}
           onCreated={setDraft}
         />
       )}
-      {section === "cabinet" && draft && (
+      {cabinetOpen && draft && (
         <section className="card stack">
           <div className="round-counter">
             Способность{" "}
             {Math.min(draft.completed_rounds + 1, draft.required_rounds)} из{" "}
             {draft.required_rounds}
           </div>
-          <h2>Выберите способность для {draft.name}</h2>
+          {!draft.ready_to_confirm && <h2>Выберите способность</h2>}
           {draft.random_rolls?.length ? (
             <div className="roll-attempts">
               {draft.random_rolls.map((roll, index) => (
@@ -240,7 +253,10 @@ export function PlayerDashboard({
               <div className="stats">
                 {Object.entries(draft.stats ?? {}).map(([stat, value]) => (
                   <div key={stat}>
-                    <span>{stat}</span>
+                    <span>
+                      {options?.stats?.find((item) => item.id === stat)?.name ??
+                        stat}
+                    </span>
                     <strong>{value}</strong>
                   </div>
                 ))}
@@ -263,7 +279,7 @@ export function PlayerDashboard({
       {section === "character" && !character && (
         <section className="card stack">
           <h2>Персонаж не выбран</h2>
-          <button className="primary" onClick={() => setSection("cabinet")}>
+          <button className="primary" onClick={() => setCabinetOpen(true)}>
             Открыть личный кабинет
           </button>
         </section>

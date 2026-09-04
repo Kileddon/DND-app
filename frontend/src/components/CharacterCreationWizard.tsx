@@ -80,6 +80,9 @@ export function CharacterCreationWizard({
   const statCatalog = options.stats ?? [];
   const species = speciesCatalog.find((item) => item.id === raceId);
   const legacyCatalog = !options.class_details;
+  const hasVariantStep = ["gnome", "dragonborn", "human", "elf"].includes(
+    raceId,
+  );
   const spent = useMemo(
     () =>
       Object.values(stats).reduce(
@@ -161,7 +164,17 @@ export function CharacterCreationWizard({
         </label>
       )}
       {step === 1 && (
-        <div className="class-choice-table">
+        <div
+          className="class-choice-table"
+          role="list"
+          aria-label="Список классов"
+        >
+          <div className="class-choice-head" role="presentation">
+            <span>Класс</span>
+            <span>Специализация</span>
+            <span>Основные атрибуты</span>
+            <span>Сложность</span>
+          </div>
           {classCatalog.map((item) => (
             <button
               className={
@@ -172,8 +185,8 @@ export function CharacterCreationWizard({
             >
               <strong>{item.name}</strong>
               <small>{item.theme}</small>
-              <small>Главное: {item.primary_stat}</small>
-              <small>Сложность: {item.difficulty}</small>
+              <small>{item.primary_stat}</small>
+              <small>{item.difficulty}</small>
             </button>
           ))}
         </div>
@@ -194,7 +207,7 @@ export function CharacterCreationWizard({
           ))}
         </div>
       )}
-      {step === 3 && (
+      {step === 3 && hasVariantStep && (
         <div className="stack compact">
           <p>
             {species?.creature_type} · скорость {species?.speed} футов
@@ -380,7 +393,9 @@ export function CharacterCreationWizard({
               <button
                 className="primary"
                 disabled={step === 0 && !name.trim()}
-                onClick={() => setStep(step + 1)}
+                onClick={() =>
+                  setStep(step === 2 && !hasVariantStep ? 4 : step + 1)
+                }
               >
                 Далее
               </button>

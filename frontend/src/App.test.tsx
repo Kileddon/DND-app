@@ -277,7 +277,7 @@ describe("local multiplayer interface", () => {
       meta: { replayed: false },
     });
     render(<PlayerDashboard snapshot={withoutCharacter} refresh={vi.fn()} />);
-    await userEvent.click(screen.getByRole("button", { name: "Кабинет" }));
+    await userEvent.click(screen.getByRole("button", { name: "На связи" }));
     await userEvent.type(
       screen.getByLabelText(/имя нового персонажа/i),
       "Aria",
