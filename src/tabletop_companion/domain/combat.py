@@ -58,6 +58,7 @@ class CombatCondition:
     source_id: str | None
     visible_to_players: bool
     created_at: datetime
+    persistent: bool = False
 
 
 @dataclass(slots=True)
@@ -233,6 +234,10 @@ class MonsterTemplate:
     conditions: tuple[str, ...]
     actions: tuple[str, ...]
     created_at: datetime
+    species: str = ""
+    abilities: str = ""
+    damage: str = ""
+    items: str = ""
 
     def __post_init__(self) -> None:
         if self.max_hp <= 0 or not 0 <= self.current_hp <= self.max_hp:
@@ -263,6 +268,7 @@ class Combat:
     updated_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    name: str = "Энкаунтер"
 
     def ensure_version(self, expected_version: int) -> None:
         if expected_version != self.version:

@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, ForeignKey, Index, Integer, String, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -24,8 +35,20 @@ class RoomRecord(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
+class AccountRecord(Base):
+    __tablename__ = "accounts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(80))
+    cloud_identity: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    version: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
+
+
 class LocalPlayerRecord(Base):
     __tablename__ = "local_players"
+    __table_args__ = (UniqueConstraint("account_id", "room_id", name="uq_membership_account_room"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), index=True)
@@ -35,6 +58,9 @@ class LocalPlayerRecord(Base):
     selected_character_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     updated_at: Mapped[str] = mapped_column(String(40))
     removed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    account_id: Mapped[str | None] = mapped_column(
+        ForeignKey("accounts.id"), nullable=True, index=True
+    )
 
 
 class CharacterDraftRecord(Base):
@@ -55,6 +81,13 @@ class CharacterDraftRecord(Base):
     updated_at: Mapped[str] = mapped_column(String(40))
     race_id: Mapped[str] = mapped_column(String(40))
     class_id: Mapped[str] = mapped_column(String(40))
+    account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    step: Mapped[str] = mapped_column(String(32), default="name")
+    species_choices: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    stat_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    base_stats: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
+    background: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    random_rolls: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
 
 class CharacterRecord(Base):
@@ -75,6 +108,28 @@ class CharacterRecord(Base):
     max_hp: Mapped[int] = mapped_column(Integer)
     current_hp: Mapped[int] = mapped_column(Integer)
     armor_class: Mapped[int] = mapped_column(Integer)
+    account_id: Mapped[str | None] = mapped_column(
+        ForeignKey("accounts.id"), nullable=True, index=True
+    )
+    archived_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    experience: Mapped[int] = mapped_column(Integer, default=0)
+    temporary_hp: Mapped[int] = mapped_column(Integer, default=0)
+    initiative: Mapped[int] = mapped_column(Integer, default=0)
+    proficiency_bonus: Mapped[int] = mapped_column(Integer, default=2)
+    size: Mapped[str] = mapped_column(String(16), default="medium")
+    speed: Mapped[int] = mapped_column(Integer, default=30)
+    darkvision: Mapped[int] = mapped_column(Integer, default=0)
+    species_choices: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    persistent_conditions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+
+
+class CharacterRoomAssignmentRecord(Base):
+    __tablename__ = "character_room_assignments"
+
+    character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"), primary_key=True)
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), primary_key=True)
+    assigned_at: Mapped[str] = mapped_column(String(40))
 
 
 class GmNotesRecord(Base):
@@ -106,6 +161,8 @@ class ItemDefinitionRecord(Base):
     name: Mapped[str] = mapped_column(String(120))
     consumable: Mapped[bool] = mapped_column(Boolean)
     locked: Mapped[bool] = mapped_column(Boolean)
+    unit_weight: Mapped[Any] = mapped_column(Numeric(10, 3), default=0)
+    slot_compatibility: Mapped[str] = mapped_column(String(16), default="none")
 
 
 class InventoryItemRecord(Base):
@@ -118,6 +175,7 @@ class InventoryItemRecord(Base):
     equipped: Mapped[bool] = mapped_column(Boolean)
     charges: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[str] = mapped_column(String(40))
+    equipment_slot: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class GameEventRecord(Base):
@@ -197,6 +255,9 @@ class LocalDeviceRecord(Base):
     last_seen_at: Mapped[str] = mapped_column(String(40))
     expires_at: Mapped[str] = mapped_column(String(40))
     revoked_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    account_id: Mapped[str | None] = mapped_column(
+        ForeignKey("accounts.id"), nullable=True, index=True
+    )
 
 
 class GameSessionRecord(Base):
@@ -225,10 +286,10 @@ class CombatRecord(Base):
     __tablename__ = "combats"
     __table_args__ = (
         Index(
-            "uq_combats_session_unfinished",
-            "session_id",
+            "uq_combats_room_active",
+            "room_id",
             unique=True,
-            sqlite_where=text("status != 'COMPLETED'"),
+            sqlite_where=text("status IN ('ACTIVE', 'PAUSED')"),
         ),
     )
 
@@ -244,6 +305,7 @@ class CombatRecord(Base):
     updated_at: Mapped[str] = mapped_column(String(40))
     started_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     completed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    name: Mapped[str] = mapped_column(String(120), default="Энкаунтер")
 
 
 class MonsterTemplateRecord(Base):
@@ -260,6 +322,10 @@ class MonsterTemplateRecord(Base):
     conditions: Mapped[list[str]] = mapped_column(JSON)
     actions: Mapped[list[str]] = mapped_column(JSON)
     created_at: Mapped[str] = mapped_column(String(40))
+    species: Mapped[str] = mapped_column(String(120), default="")
+    abilities: Mapped[str] = mapped_column(String(4000), default="")
+    damage: Mapped[str] = mapped_column(String(1000), default="")
+    items: Mapped[str] = mapped_column(String(4000), default="")
 
 
 class CombatantRecord(Base):

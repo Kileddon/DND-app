@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tabletop_companion.domain.access import DeviceRole
-from tabletop_companion.domain.combat import RollSelection
+from tabletop_companion.domain.combat import RollMode, RollSelection, RollVisibility
 from tabletop_companion.domain.models import AccessMode
 from tabletop_companion.domain.sessions import SessionStatus
 
@@ -142,6 +142,10 @@ class RollRoomDiceCommand:
     actor_id: str
     expression: str
     selection: RollSelection
+    visibility: RollVisibility = RollVisibility.PUBLIC
+    mode: RollMode = RollMode.DIGITAL
+    recipient_player_id: str | None = None
+    physical_result: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +165,16 @@ class UpdateCharacterCommand:
     current_hp: int
     armor_class: int
     expected_version: int
+    temporary_hp: int = 0
+    level: int = 1
+    experience: int = 0
+    initiative: int = 0
+    proficiency_bonus: int = 2
+    size: str = "medium"
+    speed: int = 30
+    darkvision: int = 0
+    species_choices: dict[str, str] | None = None
+    persistent_conditions: list[dict[str, object]] | None = None
 
 
 @dataclass(frozen=True, slots=True)

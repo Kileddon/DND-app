@@ -27,6 +27,7 @@ class CreateCombatCommand:
     client_time: str | None
     room_id: str
     session_id: str
+    name: str = "Энкаунтер"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +54,10 @@ class CreateMonsterTemplateCommand:
     notes: str
     conditions: tuple[str, ...]
     actions: tuple[str, ...]
+    species: str = ""
+    abilities: str = ""
+    damage: str = ""
+    items: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +124,7 @@ class AddConditionCommand:
     description: str
     source_id: str | None
     visible_to_players: bool
+    persistent: bool = False
 
 
 @dataclass(frozen=True, slots=True)

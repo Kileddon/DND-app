@@ -26,7 +26,12 @@ test("GM and player complete the local multiplayer slice", async ({
 
   await player.getByRole("button", { name: "Персонаж", exact: true }).click();
   await player.getByLabel("Имя нового персонажа").fill("Aria");
-  await player.getByRole("button", { name: "Перейти к способностям" }).click();
+  for (let step = 0; step < 6; step += 1) {
+    await player.getByRole("button", { name: "Далее" }).click();
+  }
+  await player
+    .getByRole("button", { name: "К карточкам способностей" })
+    .click();
   for (let round = 0; round < 4; round += 1) {
     await player.locator(".ability-card").first().click();
   }
@@ -41,7 +46,8 @@ test("GM and player complete the local multiplayer slice", async ({
 
   await page.getByRole("button", { name: "Бой", exact: true }).click();
   await player.getByRole("button", { name: "Бой", exact: true }).click();
-  await page.getByRole("button", { name: "Создать бой" }).click();
+  await page.getByPlaceholder("Название нового энкаунтера").fill("Засада");
+  await page.getByRole("button", { name: "Подготовить энкаунтер" }).click();
   await expect(page.getByRole("heading", { name: "Раунд 0" })).toBeVisible();
   await page
     .getByRole("button", { name: "Добавить выбранных персонажей" })
@@ -83,7 +89,7 @@ test("GM and player complete the local multiplayer slice", async ({
   ).toBeVisible();
 
   await player.getByRole("button", { name: "Персонаж", exact: true }).click();
-  await player.getByLabel("Название предмета").fill("Rope");
+  await player.getByPlaceholder("Новый предмет").fill("Rope");
   await player.getByRole("button", { name: "Добавить" }).click();
   await expect(player.getByText("Rope")).toBeVisible();
   await player.reload();

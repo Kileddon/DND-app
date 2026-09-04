@@ -223,6 +223,91 @@ export function HostCharactersPanel({
                 />
               </label>
             </div>
+            <div className="form-grid three">
+              <label>
+                Временные HP
+                <input
+                  type="number"
+                  min="0"
+                  value={selected.temporary_hp ?? 0}
+                  onChange={(e) =>
+                    patch({ temporary_hp: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label>
+                Уровень
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={selected.level ?? 1}
+                  onChange={(e) => patch({ level: Number(e.target.value) })}
+                />
+              </label>
+              <label>
+                Опыт
+                <input
+                  type="number"
+                  min="0"
+                  value={selected.experience ?? 0}
+                  onChange={(e) =>
+                    patch({ experience: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label>
+                Инициатива
+                <input
+                  type="number"
+                  value={selected.initiative ?? 0}
+                  onChange={(e) =>
+                    patch({ initiative: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label>
+                Бонус владения
+                <input
+                  type="number"
+                  min="2"
+                  value={selected.proficiency_bonus ?? 2}
+                  onChange={(e) =>
+                    patch({ proficiency_bonus: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label>
+                Размер
+                <select
+                  value={selected.size ?? "medium"}
+                  onChange={(e) => patch({ size: e.target.value })}
+                >
+                  <option value="small">Маленький</option>
+                  <option value="medium">Средний</option>
+                </select>
+              </label>
+              <label>
+                Скорость
+                <input
+                  type="number"
+                  min="0"
+                  value={selected.speed ?? 30}
+                  onChange={(e) => patch({ speed: Number(e.target.value) })}
+                />
+              </label>
+              <label>
+                Тёмное зрение
+                <input
+                  type="number"
+                  min="0"
+                  value={selected.darkvision ?? 0}
+                  onChange={(e) =>
+                    patch({ darkvision: Number(e.target.value) })
+                  }
+                />
+              </label>
+            </div>
             <h3>Характеристики</h3>
             <div className="form-grid three">
               {Object.entries(selected.stats).map(([key, value]) => (

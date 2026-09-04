@@ -115,6 +115,14 @@ def register_routes(app: FastAPI, service: CompanionService) -> None:
                 room_id=str(room_id),
                 player_id=str(player_id),
                 name=payload.name,
+                race_id=payload.race_id,
+                class_id=payload.class_id,
+                species_choices=payload.species_choices,
+                stat_method=payload.stat_method,
+                stats=payload.stats,
+                background_pattern=payload.background_pattern,
+                background_stats=payload.background_stats,
+                background_allocations=payload.background_allocations,
             )
         )
         return _response(CharacterDraftView, outcome)

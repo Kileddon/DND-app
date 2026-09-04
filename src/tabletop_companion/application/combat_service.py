@@ -58,6 +58,7 @@ from tabletop_companion.domain.errors import (
     StateConflictError,
 )
 from tabletop_companion.domain.events import DomainEvent
+from tabletop_companion.domain.models import Character
 from tabletop_companion.domain.sessions import SessionStatus
 
 logger = logging.getLogger(__name__)
@@ -85,10 +86,8 @@ class CombatService:
 
         def operation(uow: CombatUnitOfWork) -> ResultData:
             session = uow.get_game_session(command.session_id)
-            if session.room_id != command.room_id or session.status is not SessionStatus.ACTIVE:
-                raise StateConflictError("Combat requires an active game session.")
-            if uow.get_active_combat(session.id) is not None:
-                raise StateConflictError("Session already has an unfinished combat.")
+            if session.room_id != command.room_id or session.status is SessionStatus.COMPLETED:
+                raise StateConflictError("Encounter requires an unfinished game session.")
             now = self._clock()
             combat = Combat(
                 id=self._id_factory(),
@@ -101,7 +100,10 @@ class CombatService:
                 version=1,
                 created_at=now,
                 updated_at=now,
+                name=command.name.strip(),
             )
+            if not combat.name:
+                raise DomainValidationError("Encounter name is required.")
             uow.add_combat(combat)
             uow.add_event(self._combat_event("CombatCreated", combat, command, {}))
             return self._combat_data(combat)
@@ -126,6 +128,10 @@ class CombatService:
                 conditions=tuple(item.strip() for item in command.conditions if item.strip()),
                 actions=tuple(item.strip() for item in command.actions if item.strip()),
                 created_at=self._clock(),
+                species=command.species.strip(),
+                abilities=command.abilities.strip(),
+                damage=command.damage.strip(),
+                items=command.items.strip(),
             )
             if not template.name:
                 raise DomainValidationError("Monster name is required.")
@@ -151,8 +157,8 @@ class CombatService:
         def operation(uow: CombatUnitOfWork) -> ResultData:
             combat = self._combat_for_command(uow, command)
             character = uow.get_character(command.character_id)
-            if character.room_id != command.room_id:
-                raise PermissionDeniedError("Character does not belong to this room.")
+            if not uow.is_character_assigned(character.id, command.room_id):
+                raise PermissionDeniedError("Character is not assigned to this room.")
             if any(actor.reference_id == character.id for actor in uow.list_combatants(combat.id)):
                 raise StateConflictError("Character already participates in combat.")
             entry_id, actor_id, now = self._id_factory(), self._id_factory(), self._clock()
@@ -165,9 +171,20 @@ class CombatService:
                 name=character.name,
                 max_hp=character.max_hp,
                 current_hp=character.current_hp,
-                temporary_hp=0,
+                temporary_hp=character.temporary_hp,
                 armor_class=character.armor_class,
-                conditions=[],
+                conditions=[
+                    CombatCondition(
+                        id=str(item["id"]),
+                        name=str(item["name"]),
+                        description=str(item.get("description", "")),
+                        source_id=None,
+                        visible_to_players=True,
+                        created_at=now,
+                        persistent=True,
+                    )
+                    for item in character.persistent_conditions
+                ],
                 show_wound_state=False,
                 wound_override=None,
                 version=1,
@@ -385,9 +402,15 @@ class CombatService:
                 command.source_id,
                 command.visible_to_players,
                 self._clock(),
+                command.persistent,
             )
             target.add_condition(condition, expected_version=command.expected_version)
             uow.save_combatant(target)
+            if condition.persistent and target.kind is CombatantKind.CHARACTER:
+                character = uow.get_character(cast(str, target.reference_id))
+                character.persistent_conditions.append(self._condition_data(condition))
+                character.version += 1
+                uow.save_character(character)
             event = self._event(
                 "ConditionAdded",
                 command.room_id,
@@ -422,6 +445,15 @@ class CombatService:
                 command.condition_id, expected_version=command.expected_version
             )
             uow.save_combatant(target)
+            if removed.persistent and target.kind is CombatantKind.CHARACTER:
+                character = uow.get_character(cast(str, target.reference_id))
+                character.persistent_conditions = [
+                    item
+                    for item in character.persistent_conditions
+                    if str(item.get("id")) != removed.id
+                ]
+                character.version += 1
+                uow.save_character(character)
             uow.add_event(
                 self._event(
                     "ConditionRemoved",
@@ -494,7 +526,7 @@ class CombatService:
                 raise PermissionDeniedError("Roll actor does not belong to combat.")
             if principal.role is DeviceRole.PLAYER:
                 character = uow.get_character(cast(str, actors[0].reference_id))
-                if character.owner_id != principal.player_id:
+                if not self._player_controls(character, principal):
                     raise PermissionDeniedError("Player does not control the roll actor.")
             expression = DiceExpression.parse(command.expression)
             rolls: list[DiceRoll] = []
@@ -602,25 +634,24 @@ class CombatService:
             roll = uow.get_dice_roll(command.roll_id)
             if roll.room_id != command.room_id:
                 raise PermissionDeniedError("Roll does not belong to this room.")
-            if roll.combat_id is None:
-                raise PermissionDeniedError("Only combat rolls can be revealed here.")
             roll.reveal(self._clock())
             uow.save_dice_roll(roll)
-            combat = uow.get_combat(roll.combat_id)
+            combat = uow.get_combat(roll.combat_id) if roll.combat_id else None
+            session = uow.get_unfinished_session(command.room_id)
             uow.add_event(
                 self._event(
                     "DiceRollRevealed",
                     command.room_id,
-                    combat.session_id,
-                    combat.id,
+                    combat.session_id if combat else (session.id if session else None),
+                    combat.id if combat else roll.id,
                     principal.id,
                     command.command_id,
-                    {"combat_id": combat.id, "roll": self._roll_data(roll)},
+                    {"combat_id": combat.id if combat else None, "roll": self._roll_data(roll)},
                 )
             )
             return self._roll_data(roll)
 
-        return self._execute("reveal_combat_roll", command, principal.id, operation)
+        return self._execute("reveal_dice_roll", command, principal.id, operation)
 
     def support(self, command: SupportCommand, principal: LocalDevice) -> CommandOutcome:
         if principal.role is not DeviceRole.PLAYER or principal.player_id is None:
@@ -631,7 +662,7 @@ class CombatService:
         def operation(uow: CombatUnitOfWork) -> ResultData:
             combat = uow.get_combat(command.combat_id)
             character = uow.get_character(command.character_id)
-            if combat.room_id != command.room_id or character.owner_id != principal.player_id:
+            if combat.room_id != command.room_id or not self._player_controls(character, principal):
                 raise PermissionDeniedError("Player does not control this character.")
             participants = uow.list_combatants(combat.id)
             actor = next((item for item in participants if item.reference_id == character.id), None)
@@ -687,7 +718,15 @@ class CombatService:
             if not combats:
                 return None
             combat = next(
-                (item for item in combats if item.status is not CombatStatus.COMPLETED), combats[-1]
+                (
+                    item
+                    for item in combats
+                    if item.status in {CombatStatus.ACTIVE, CombatStatus.PAUSED}
+                ),
+                next(
+                    (item for item in combats if item.status is CombatStatus.PREPARATION),
+                    combats[-1],
+                ),
             )
             actors = uow.list_combatants(combat.id)
             rolls = [
@@ -716,6 +755,50 @@ class CombatService:
                 if combat.status is CombatStatus.COMPLETED
                 else None,
             }
+
+    def encounters(self, principal: LocalDevice) -> list[ResultData]:
+        with self._uow_factory() as uow:
+            session = uow.get_unfinished_session(principal.room_id)
+            if session is None:
+                return []
+            result: list[ResultData] = []
+            templates = (
+                [
+                    self._template_data(item)
+                    for item in uow.list_monster_templates(principal.room_id)
+                ]
+                if principal.role is DeviceRole.GM
+                else []
+            )
+            for combat in uow.list_combats(session.id):
+                events = [
+                    item
+                    for item in uow.list_events(principal.room_id)
+                    if item.payload.get("combat_id") == combat.id
+                    and self.event_visible(item, principal)
+                ]
+                result.append(
+                    {
+                        **self._combat_data(combat),
+                        "combatants": [
+                            self._combatant_projection(item, principal, uow)
+                            for item in uow.list_combatants(combat.id)
+                        ],
+                        "monster_templates": templates,
+                        "rolls": [
+                            self._roll_data(item)
+                            for item in uow.list_dice_rolls(combat.id)
+                            if self._roll_visible(item, principal)
+                        ],
+                        "journal": [self.project_event(item, principal) for item in events[-100:]],
+                        "report": (
+                            build_combat_report(events)
+                            if combat.status is CombatStatus.COMPLETED
+                            else None
+                        ),
+                    }
+                )
+            return result
 
     def event_visible(self, event: DomainEvent, principal: LocalDevice) -> bool:
         if principal.role is DeviceRole.GM:
@@ -796,6 +879,12 @@ class CombatService:
                     expected_version=target.version,
                 )
                 uow.save_combatant(target)
+                if target.kind is CombatantKind.CHARACTER and target.reference_id:
+                    character = uow.get_character(target.reference_id)
+                    character.current_hp = target.current_hp
+                    character.temporary_hp = target.temporary_hp
+                    character.version += 1
+                    uow.save_character(character)
                 current_versions[target.id] = target.version
             compensation_event = self._event(
                 "HealthActionCompensated",
@@ -880,7 +969,12 @@ class CombatService:
             uow.save_combatant(target)
             owner = None
             if target.kind is CombatantKind.CHARACTER and target.reference_id:
-                owner = uow.get_character(target.reference_id).owner_id
+                character = uow.get_character(target.reference_id)
+                owner = character.owner_id
+                character.current_hp = target.current_hp
+                character.temporary_hp = target.temporary_hp
+                character.version += 1
+                uow.save_character(character)
             relation = (
                 "monster"
                 if target.kind is CombatantKind.MONSTER
@@ -945,6 +1039,13 @@ class CombatService:
 
         def operation(uow: CombatUnitOfWork) -> ResultData:
             combat = self._combat_for_command(uow, command)
+            if event_type in {"CombatStarted", "CombatResumed"}:
+                active = uow.get_active_combat(combat.session_id)
+                if active is not None and active.id != combat.id:
+                    raise StateConflictError(
+                        "Another encounter is already active in this room.",
+                        code="active_encounter_exists",
+                    )
             change(combat)
             uow.save_combat(combat)
             uow.add_event(self._combat_event(event_type, combat, command, payload))
@@ -1002,6 +1103,12 @@ class CombatService:
     def _ensure_combat_room(combat: Combat, room_id: str) -> None:
         if combat.room_id != room_id:
             raise PermissionDeniedError("Combat does not belong to this room.")
+
+    @staticmethod
+    def _player_controls(character: Character, principal: LocalDevice) -> bool:
+        return (character.account_id or character.owner_id) == (
+            principal.account_id or principal.player_id
+        )
 
     def _combat_for_command(self, uow: CombatUnitOfWork, command: CombatCommand) -> Combat:
         combat = uow.get_combat(command.combat_id)
@@ -1068,6 +1175,7 @@ class CombatService:
             "source_id": item.source_id,
             "visible_to_players": item.visible_to_players,
             "created_at": item.created_at.isoformat(),
+            "persistent": item.persistent,
         }
 
     @classmethod
@@ -1106,7 +1214,7 @@ class CombatService:
             return self._combatant_data(item, gm=True)
         own = False
         if item.kind is CombatantKind.CHARACTER and item.reference_id and principal.player_id:
-            own = uow.get_character(item.reference_id).owner_id == principal.player_id
+            own = self._player_controls(uow.get_character(item.reference_id), principal)
         data = self._combatant_data(item, gm=own)
         if item.kind is CombatantKind.MONSTER and not item.show_wound_state:
             data["wound_state"] = None
@@ -1116,6 +1224,7 @@ class CombatService:
     def _combat_data(cls, combat: Combat, actors: list[Combatant] | None = None) -> ResultData:
         data: ResultData = {
             "id": combat.id,
+            "name": combat.name,
             "room_id": combat.room_id,
             "session_id": combat.session_id,
             "status": combat.status.value,
@@ -1143,6 +1252,10 @@ class CombatService:
             "notes": item.notes,
             "conditions": list(item.conditions),
             "actions": list(item.actions),
+            "species": item.species,
+            "abilities": item.abilities,
+            "damage": item.damage,
+            "items": item.items,
         }
 
     @staticmethod

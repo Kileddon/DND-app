@@ -16,6 +16,7 @@ from tabletop_companion.domain.access import (
     PairingInvitation,
     RoomInvitation,
 )
+from tabletop_companion.domain.character_creation import SlotCompatibility
 from tabletop_companion.domain.combat import (
     Combat,
     Combatant,
@@ -38,6 +39,7 @@ from tabletop_companion.domain.errors import (
 from tabletop_companion.domain.events import DomainEvent
 from tabletop_companion.domain.models import (
     AccessMode,
+    Account,
     Character,
     CharacterDraft,
     DraftStatus,
@@ -50,8 +52,10 @@ from tabletop_companion.domain.models import (
 )
 from tabletop_companion.domain.sessions import GameSession, SessionStatus
 from tabletop_companion.infrastructure.tables import (
+    AccountRecord,
     CharacterDraftRecord,
     CharacterRecord,
+    CharacterRoomAssignmentRecord,
     CombatantRecord,
     CombatRecord,
     DiceRollRecord,
@@ -186,6 +190,7 @@ class SqlAlchemyUnitOfWork:
                 selected_character_id=player.selected_character_id,
                 updated_at=(player.updated_at or player.created_at).isoformat(),
                 removed_at=player.removed_at.isoformat() if player.removed_at else None,
+                account_id=player.account_id,
             )
         )
         self._flush_parent("local player")
@@ -205,6 +210,7 @@ class SqlAlchemyUnitOfWork:
             selected_character_id=record.selected_character_id,
             updated_at=datetime.fromisoformat(record.updated_at),
             removed_at=datetime.fromisoformat(record.removed_at) if record.removed_at else None,
+            account_id=record.account_id,
         )
 
     def save_local_player(self, player: LocalPlayer) -> None:
@@ -245,9 +251,22 @@ class SqlAlchemyUnitOfWork:
                 selected_character_id=record.selected_character_id,
                 updated_at=datetime.fromisoformat(record.updated_at),
                 removed_at=datetime.fromisoformat(record.removed_at) if record.removed_at else None,
+                account_id=record.account_id,
             )
             for record in records
         ]
+
+    def add_account(self, account: Account) -> None:
+        self._session.add(
+            AccountRecord(
+                id=account.id,
+                display_name=account.display_name,
+                cloud_identity=account.cloud_identity,
+                version=account.version,
+                created_at=account.created_at.isoformat(),
+                updated_at=account.updated_at.isoformat(),
+            )
+        )
 
     def add_character_draft(self, draft: CharacterDraft) -> None:
         self._session.add(self._draft_record(draft))
@@ -273,6 +292,12 @@ class SqlAlchemyUnitOfWork:
                 chosen_card_ids=list(draft.chosen_card_ids),
                 generation=draft.generation,
                 status=draft.status.value,
+                step=draft.step,
+                species_choices=dict(draft.species_choices),
+                stat_method=draft.stat_method,
+                base_stats=dict(draft.base_stats),
+                background=dict(draft.background),
+                random_rolls=list(draft.random_rolls),
                 version=draft.version,
                 updated_at=draft.updated_at.isoformat(),
             )
@@ -299,6 +324,25 @@ class SqlAlchemyUnitOfWork:
                 max_hp=character.max_hp,
                 current_hp=character.current_hp,
                 armor_class=character.armor_class,
+                account_id=character.account_id,
+                archived_at=character.archived_at.isoformat() if character.archived_at else None,
+                level=character.level,
+                experience=character.experience,
+                temporary_hp=character.temporary_hp,
+                initiative=character.initiative,
+                proficiency_bonus=character.proficiency_bonus,
+                size=character.size,
+                speed=character.speed,
+                darkvision=character.darkvision,
+                species_choices=dict(character.species_choices),
+                persistent_conditions=list(character.persistent_conditions),
+            )
+        )
+        self._session.add(
+            CharacterRoomAssignmentRecord(
+                character_id=character.id,
+                room_id=character.room_id,
+                assigned_at=character.created_at.isoformat(),
             )
         )
 
@@ -328,6 +372,9 @@ class SqlAlchemyUnitOfWork:
                 equipped=item.equipped,
                 charges=item.charges,
                 created_at=datetime.fromisoformat(item.created_at),
+                unit_weight=definition.unit_weight,
+                slot_compatibility=SlotCompatibility(definition.slot_compatibility),
+                equipment_slot=item.equipment_slot,
             )
             for item, definition in item_rows
         ]
@@ -348,12 +395,28 @@ class SqlAlchemyUnitOfWork:
             max_hp=record.max_hp,
             current_hp=record.current_hp,
             armor_class=record.armor_class,
+            account_id=record.account_id,
+            archived_at=datetime.fromisoformat(record.archived_at) if record.archived_at else None,
+            level=record.level,
+            experience=record.experience,
+            temporary_hp=record.temporary_hp,
+            initiative=record.initiative,
+            proficiency_bonus=record.proficiency_bonus,
+            size=record.size,
+            speed=record.speed,
+            darkvision=record.darkvision,
+            species_choices=dict(record.species_choices),
+            persistent_conditions=list(record.persistent_conditions),
         )
 
     def list_characters_for_player(self, player_id: str) -> list[Character]:
+        player = self.get_local_player(player_id)
         character_ids = self._session.scalars(
             select(CharacterRecord.id)
-            .where(CharacterRecord.owner_id == player_id)
+            .where(
+                CharacterRecord.account_id == (player.account_id or player.id),
+                CharacterRecord.archived_at.is_(None),
+            )
             .order_by(CharacterRecord.created_at, CharacterRecord.id)
         ).all()
         return [self.get_character(character_id) for character_id in character_ids]
@@ -361,10 +424,59 @@ class SqlAlchemyUnitOfWork:
     def list_characters_for_room(self, room_id: str) -> list[Character]:
         character_ids = self._session.scalars(
             select(CharacterRecord.id)
-            .where(CharacterRecord.room_id == room_id)
+            .join(
+                CharacterRoomAssignmentRecord,
+                CharacterRoomAssignmentRecord.character_id == CharacterRecord.id,
+            )
+            .where(
+                CharacterRoomAssignmentRecord.room_id == room_id,
+                CharacterRecord.archived_at.is_(None),
+            )
             .order_by(CharacterRecord.created_at, CharacterRecord.id)
         ).all()
         return [self.get_character(character_id) for character_id in character_ids]
+
+    def is_character_assigned(self, character_id: str, room_id: str) -> bool:
+        return self._session.get(CharacterRoomAssignmentRecord, (character_id, room_id)) is not None
+
+    def assign_character(self, character_id: str, room_id: str, assigned_at: str) -> None:
+        if not self.is_character_assigned(character_id, room_id):
+            self._session.add(
+                CharacterRoomAssignmentRecord(
+                    character_id=character_id, room_id=room_id, assigned_at=assigned_at
+                )
+            )
+
+    def list_archived_characters_for_player(self, player_id: str) -> list[Character]:
+        player = self.get_local_player(player_id)
+        character_ids = self._session.scalars(
+            select(CharacterRecord.id).where(
+                CharacterRecord.account_id == (player.account_id or player.id),
+                CharacterRecord.archived_at.is_not(None),
+            )
+        ).all()
+        return [self.get_character(character_id) for character_id in character_ids]
+
+    def character_in_active_encounter(self, character_id: str) -> bool:
+        return (
+            self._session.scalar(
+                select(CombatantRecord.id)
+                .join(CombatRecord, CombatRecord.id == CombatantRecord.combat_id)
+                .where(
+                    CombatantRecord.reference_id == character_id,
+                    CombatRecord.status.in_((CombatStatus.ACTIVE.value, CombatStatus.PAUSED.value)),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def clear_character_selections(self, character_id: str) -> None:
+        self._session.execute(
+            update(LocalPlayerRecord)
+            .where(LocalPlayerRecord.selected_character_id == character_id)
+            .values(selected_character_id=None, version=LocalPlayerRecord.version + 1)
+        )
 
     def get_gm_notes(self, room_id: str) -> GmNotes | None:
         record = self._session.get(GmNotesRecord, room_id)
@@ -560,6 +672,7 @@ class SqlAlchemyUnitOfWork:
                 last_seen_at=device.last_seen_at.isoformat(),
                 expires_at=device.expires_at.isoformat(),
                 revoked_at=device.revoked_at.isoformat() if device.revoked_at else None,
+                account_id=device.account_id,
             )
         )
 
@@ -582,6 +695,7 @@ class SqlAlchemyUnitOfWork:
         if record is None:
             raise EntityNotFoundError("Local device was not found.")
         record.player_id = device.player_id
+        record.account_id = device.account_id
         record.credential_digest = device.credential_digest
         record.status = device.status.value
         record.last_seen_at = device.last_seen_at.isoformat()
@@ -643,6 +757,8 @@ class SqlAlchemyUnitOfWork:
                 name=definition.name,
                 consumable=definition.consumable,
                 locked=definition.locked,
+                unit_weight=definition.unit_weight,
+                slot_compatibility=definition.slot_compatibility.value,
             )
         )
         try:
@@ -667,6 +783,9 @@ class SqlAlchemyUnitOfWork:
                 max_hp=character.max_hp,
                 current_hp=character.current_hp,
                 armor_class=character.armor_class,
+                temporary_hp=character.temporary_hp,
+                persistent_conditions=list(character.persistent_conditions),
+                archived_at=character.archived_at.isoformat() if character.archived_at else None,
                 version=character.version,
             )
             .returning(CharacterRecord.id)
@@ -696,12 +815,14 @@ class SqlAlchemyUnitOfWork:
                         equipped=item.equipped,
                         charges=item.charges,
                         created_at=item.created_at.isoformat(),
+                        equipment_slot=item.equipment_slot,
                     )
                 )
             else:
                 item_record.quantity = item.quantity
                 item_record.equipped = item.equipped
                 item_record.charges = item.charges
+                item_record.equipment_slot = item.equipment_slot
 
     def add_combat(self, combat: Combat) -> None:
         self._session.add(self._combat_record(combat))
@@ -717,7 +838,7 @@ class SqlAlchemyUnitOfWork:
         record = self._session.scalar(
             select(CombatRecord).where(
                 CombatRecord.session_id == session_id,
-                CombatRecord.status != CombatStatus.COMPLETED.value,
+                CombatRecord.status.in_((CombatStatus.ACTIVE.value, CombatStatus.PAUSED.value)),
             )
         )
         return self._combat(record) if record else None
@@ -743,6 +864,7 @@ class SqlAlchemyUnitOfWork:
                 updated_at=combat.updated_at.isoformat(),
                 started_at=combat.started_at.isoformat() if combat.started_at else None,
                 completed_at=combat.completed_at.isoformat() if combat.completed_at else None,
+                name=combat.name,
             )
             .returning(CombatRecord.id)
         )
@@ -763,6 +885,10 @@ class SqlAlchemyUnitOfWork:
                 conditions=list(template.conditions),
                 actions=list(template.actions),
                 created_at=template.created_at.isoformat(),
+                species=template.species,
+                abilities=template.abilities,
+                damage=template.damage,
+                items=template.items,
             )
         )
 
@@ -995,6 +1121,13 @@ class SqlAlchemyUnitOfWork:
             updated_at=draft.updated_at.isoformat(),
             race_id=draft.race_id,
             class_id=draft.class_id,
+            account_id=draft.account_id,
+            step=draft.step,
+            species_choices=dict(draft.species_choices),
+            stat_method=draft.stat_method,
+            base_stats=dict(draft.base_stats),
+            background=dict(draft.background),
+            random_rolls=list(draft.random_rolls),
         )
 
     @staticmethod
@@ -1015,6 +1148,13 @@ class SqlAlchemyUnitOfWork:
             updated_at=datetime.fromisoformat(record.updated_at),
             race_id=record.race_id,
             class_id=record.class_id,
+            account_id=record.account_id,
+            step=record.step,
+            species_choices=dict(record.species_choices),
+            stat_method=record.stat_method,
+            base_stats=dict(record.base_stats),
+            background=dict(record.background),
+            random_rolls=list(record.random_rolls),
         )
 
     @staticmethod
@@ -1071,6 +1211,7 @@ class SqlAlchemyUnitOfWork:
             last_seen_at=datetime.fromisoformat(record.last_seen_at),
             expires_at=datetime.fromisoformat(record.expires_at),
             revoked_at=datetime.fromisoformat(record.revoked_at) if record.revoked_at else None,
+            account_id=record.account_id,
         )
 
     @staticmethod
@@ -1131,6 +1272,7 @@ class SqlAlchemyUnitOfWork:
             updated_at=combat.updated_at.isoformat(),
             started_at=combat.started_at.isoformat() if combat.started_at else None,
             completed_at=combat.completed_at.isoformat() if combat.completed_at else None,
+            name=combat.name,
         )
 
     @staticmethod
@@ -1159,6 +1301,7 @@ class SqlAlchemyUnitOfWork:
             completed_at=(
                 datetime.fromisoformat(record.completed_at) if record.completed_at else None
             ),
+            name=record.name,
         )
 
     @staticmethod
@@ -1175,6 +1318,10 @@ class SqlAlchemyUnitOfWork:
             conditions=tuple(record.conditions),
             actions=tuple(record.actions),
             created_at=datetime.fromisoformat(record.created_at),
+            species=record.species,
+            abilities=record.abilities,
+            damage=record.damage,
+            items=record.items,
         )
 
     @staticmethod
@@ -1186,6 +1333,7 @@ class SqlAlchemyUnitOfWork:
             "source_id": condition.source_id,
             "visible_to_players": condition.visible_to_players,
             "created_at": condition.created_at.isoformat(),
+            "persistent": condition.persistent,
         }
 
     @classmethod
@@ -1229,6 +1377,7 @@ class SqlAlchemyUnitOfWork:
                     source_id=str(item["source_id"]) if item.get("source_id") else None,
                     visible_to_players=bool(item["visible_to_players"]),
                     created_at=datetime.fromisoformat(str(item["created_at"])),
+                    persistent=bool(item.get("persistent", False)),
                 )
                 for item in record.conditions
             ],

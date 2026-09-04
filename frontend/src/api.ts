@@ -40,6 +40,7 @@ export interface CombatCondition {
   name: string;
   description: string;
   visible_to_players: boolean;
+  persistent?: boolean;
 }
 
 export interface Combatant {
@@ -97,10 +98,17 @@ export interface MonsterTemplate {
   armor_class: number;
   conditions: string[];
   actions: string[];
+  image_url?: string | null;
+  notes?: string;
+  species?: string;
+  abilities?: string;
+  damage?: string;
+  items?: string;
 }
 
 export interface CombatState {
   id: string;
+  name?: string;
   room_id: string;
   session_id: string;
   status: "PREPARATION" | "ACTIVE" | "PAUSED" | "COMPLETED";
@@ -138,6 +146,30 @@ export interface CharacterOptions {
     base_armor_class: number;
   })[];
   abilities: AbilityCard[];
+  class_details?: Array<{
+    id: string;
+    name: string;
+    theme: string;
+    primary_stat: string;
+    difficulty: string;
+  }>;
+  species?: Array<{
+    id: string;
+    name: string;
+    description: string;
+    source_url: string;
+    creature_type: string;
+    sizes: string[];
+    speed: number;
+    lineages: string[];
+    features: Array<{
+      id: string;
+      name: string;
+      description: string;
+      required_level: number;
+    }>;
+  }>;
+  stats?: Array<{ id: string; name: string; description: string }>;
 }
 
 export interface CharacterDraft {
@@ -151,6 +183,16 @@ export interface CharacterDraft {
   required_rounds: number;
   ready_to_confirm: boolean;
   version: number;
+  stats?: Record<string, number>;
+  base_stats?: Record<string, number>;
+  species_choices?: Record<string, string>;
+  persistent_conditions?: Array<Record<string, unknown>>;
+  stat_method?: "standard" | "random" | "point_buy";
+  random_rolls?: Array<{
+    values: number[];
+    dropped_index: number;
+    total: number;
+  }>;
 }
 
 export interface InventoryItem {
@@ -159,6 +201,9 @@ export interface InventoryItem {
   quantity: number;
   consumable: boolean;
   locked: boolean;
+  unit_weight?: string;
+  slot_compatibility?: "hand" | "armor" | "other" | "none";
+  equipment_slot?: string | null;
 }
 
 export interface Character {
@@ -174,6 +219,18 @@ export interface Character {
   abilities: AbilityCard[];
   inventory: InventoryItem[];
   version: number;
+  level?: number;
+  experience?: number;
+  temporary_hp?: number;
+  initiative?: number;
+  proficiency_bonus?: number;
+  size?: string;
+  speed?: number;
+  darkvision?: number;
+  species_choices?: Record<string, string>;
+  persistent_conditions?: Array<Record<string, unknown>>;
+  total_weight?: string;
+  archived_at?: string | null;
 }
 
 export interface CharacterSummary {
@@ -217,6 +274,8 @@ export interface Snapshot {
   characters?: CharacterSummary[];
   combat?: CombatState | null;
   dice_rolls?: DiceRoll[];
+  archived_characters?: CharacterSummary[];
+  encounters?: CombatState[];
 }
 
 export interface Diagnostics {
@@ -438,6 +497,14 @@ export const api = {
     name: string,
     raceId: string,
     classId: string,
+    configuration?: {
+      species_choices: Record<string, string>;
+      stat_method: "standard" | "random" | "point_buy";
+      stats: Record<string, number>;
+      background_pattern: "2+1" | "1+1+1";
+      background_stats: [string, string, string];
+      background_allocations: Record<string, number>;
+    },
   ) =>
     request<CommandResponse<CharacterDraft>>("/api/v2/me/character-drafts", {
       method: "POST",
@@ -446,6 +513,7 @@ export const api = {
         name,
         race_id: raceId,
         class_id: classId,
+        ...configuration,
       }),
     }),
   chooseCard: (deviceId: string, draft: CharacterDraft, cardId: string) =>
@@ -504,6 +572,16 @@ export const api = {
           max_hp: character.max_hp,
           current_hp: character.current_hp,
           armor_class: character.armor_class,
+          temporary_hp: character.temporary_hp ?? 0,
+          level: character.level ?? 1,
+          experience: character.experience ?? 0,
+          initiative: character.initiative ?? 0,
+          proficiency_bonus: character.proficiency_bonus ?? 2,
+          size: character.size ?? "medium",
+          speed: character.speed ?? 30,
+          darkvision: character.darkvision ?? 0,
+          species_choices: character.species_choices ?? {},
+          persistent_conditions: character.persistent_conditions ?? [],
           expected_version: character.version,
         }),
       },
@@ -592,6 +670,8 @@ export const api = {
     playerId: string,
     character: Character,
     name: string,
+    unitWeight = "0",
+    slotCompatibility: InventoryItem["slot_compatibility"] = "none",
   ) =>
     request<CommandResponse<Character>>(
       `/api/v2/characters/${character.id}/inventory`,
@@ -607,6 +687,8 @@ export const api = {
           equipped: false,
           charges: null,
           expected_version: character.version,
+          unit_weight: unitWeight,
+          slot_compatibility: slotCompatibility,
         }),
       },
     ),
@@ -628,10 +710,53 @@ export const api = {
         }),
       },
     ),
-  createCombat: (roomId: string, sessionId: string, deviceId: string) =>
+  equipItem: (
+    deviceId: string,
+    playerId: string,
+    character: Character,
+    item: InventoryItem,
+    slot: string | null,
+  ) =>
+    request<CommandResponse<Character>>(
+      `/api/v2/characters/${character.id}/inventory/${item.id}/equipment`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          actor_id: playerId,
+          slot,
+          expected_version: character.version,
+        }),
+      },
+    ),
+  changeCharacterLifecycle: (
+    deviceId: string,
+    character: Character | CharacterSummary,
+    action: "assign" | "archive" | "restore",
+  ) =>
+    request<CommandResponse<Character>>(
+      `/api/v2/me/characters/${character.id}/lifecycle`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          action,
+          expected_version: character.version,
+        }),
+      },
+    ),
+  createCombat: (
+    roomId: string,
+    sessionId: string,
+    deviceId: string,
+    name = "Энкаунтер",
+  ) =>
     request<CommandResponse<CombatState>>(
       `/api/v2/rooms/${roomId}/sessions/${sessionId}/combats`,
-      { method: "POST", body: JSON.stringify(commandMeta(deviceId)) },
+      {
+        method: "POST",
+        body: JSON.stringify({ ...commandMeta(deviceId), name }),
+      },
     ),
   addCombatCharacter: (
     combat: CombatState,
@@ -658,7 +783,17 @@ export const api = {
   createMonsterTemplate: (
     roomId: string,
     deviceId: string,
-    input: { name: string; hp: number; armorClass: number },
+    input: {
+      name: string;
+      hp: number;
+      armorClass: number;
+      imageUrl?: string;
+      notes?: string;
+      species?: string;
+      abilities?: string;
+      damage?: string;
+      items?: string;
+    },
   ) =>
     request<CommandResponse<MonsterTemplate>>(
       `/api/v2/rooms/${roomId}/monster-templates`,
@@ -667,13 +802,17 @@ export const api = {
         body: JSON.stringify({
           ...commandMeta(deviceId),
           name: input.name,
-          image_url: null,
+          image_url: input.imageUrl || null,
           max_hp: input.hp,
           current_hp: input.hp,
           armor_class: input.armorClass,
-          notes: "",
+          notes: input.notes ?? "",
           conditions: [],
           actions: [],
+          species: input.species ?? "",
+          abilities: input.abilities ?? "",
+          damage: input.damage ?? "",
+          items: input.items ?? "",
         }),
       },
     ),
@@ -781,6 +920,7 @@ export const api = {
     target: Combatant,
     deviceId: string,
     name: string,
+    persistent = false,
   ) =>
     request<CommandResponse<Combatant>>(
       `/api/v2/rooms/${combat.room_id}/combats/${combat.id}/combatants/${target.id}/conditions`,
@@ -794,6 +934,7 @@ export const api = {
           description: "",
           source_id: null,
           visible_to_players: true,
+          persistent,
         }),
       },
     ),

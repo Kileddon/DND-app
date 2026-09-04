@@ -109,6 +109,7 @@ class LocalDevice:
     expires_at: datetime
     player_id: str | None = None
     revoked_at: datetime | None = None
+    account_id: str | None = None
 
     def authenticate(self, now: datetime) -> None:
         if self.status is DeviceStatus.REVOKED:
@@ -122,6 +123,11 @@ class LocalDevice:
             raise StateConflictError("Device is already attached to another local profile.")
         self.player_id = player_id
         self.last_seen_at = now
+
+    def attach_account(self, account_id: str) -> None:
+        if self.account_id is not None and self.account_id != account_id:
+            raise StateConflictError("Device is already attached to another account.")
+        self.account_id = account_id
 
     def touch(self, now: datetime) -> None:
         self.authenticate(now)

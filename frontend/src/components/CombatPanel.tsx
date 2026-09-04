@@ -49,8 +49,16 @@ export function HostCombatPanel({
   const [amount, setAmount] = useState(1);
   const [monsterName, setMonsterName] = useState("Гоблин");
   const [monsterHp, setMonsterHp] = useState(10);
+  const [monsterArmor, setMonsterArmor] = useState(12);
   const [monsterCount, setMonsterCount] = useState(1);
+  const [monsterSpecies, setMonsterSpecies] = useState("");
+  const [monsterAbilities, setMonsterAbilities] = useState("");
+  const [monsterDamage, setMonsterDamage] = useState("");
+  const [monsterNotes, setMonsterNotes] = useState("");
+  const [monsterItems, setMonsterItems] = useState("");
+  const [monsterImage, setMonsterImage] = useState("");
   const [condition, setCondition] = useState("Сбит с ног");
+  const [persistentCondition, setPersistentCondition] = useState(false);
   const [critical, setCritical] = useState(false);
   const [pending, setPending] = useState("");
   const [error, setError] = useState<unknown>();
@@ -111,7 +119,17 @@ export function HostCombatPanel({
       const template = await api.createMonsterTemplate(
         snapshot.room.id,
         snapshot.current_device_id,
-        { name: monsterName, hp: monsterHp, armorClass: 12 },
+        {
+          name: monsterName,
+          hp: monsterHp,
+          armorClass: monsterArmor,
+          species: monsterSpecies,
+          abilities: monsterAbilities,
+          damage: monsterDamage,
+          notes: monsterNotes,
+          items: monsterItems,
+          imageUrl: monsterImage,
+        },
       );
       return api.addMonsters(
         combat,
@@ -144,7 +162,13 @@ export function HostCombatPanel({
     const target = combat.combatants.find((item) => item.id === selected[0]);
     if (!target) return;
     const response = await run("condition", () =>
-      api.addCondition(combat, target, snapshot.current_device_id, condition),
+      api.addCondition(
+        combat,
+        target,
+        snapshot.current_device_id,
+        condition,
+        persistentCondition,
+      ),
     );
     if (response) refresh();
   }
@@ -291,6 +315,16 @@ export function HostCombatPanel({
                 required
               />
               <input
+                aria-label="Класс брони монстра"
+                type="number"
+                min="0"
+                value={monsterArmor}
+                onChange={(event) =>
+                  setMonsterArmor(Number(event.target.value))
+                }
+                required
+              />
+              <input
                 aria-label="Количество монстров"
                 type="number"
                 min="1"
@@ -300,6 +334,42 @@ export function HostCombatPanel({
                   setMonsterCount(Number(event.target.value))
                 }
                 required
+              />
+              <input
+                aria-label="Вид монстра"
+                placeholder="Вид"
+                value={monsterSpecies}
+                onChange={(event) => setMonsterSpecies(event.target.value)}
+              />
+              <input
+                aria-label="Изображение монстра"
+                placeholder="Ссылка на изображение"
+                value={monsterImage}
+                onChange={(event) => setMonsterImage(event.target.value)}
+              />
+              <textarea
+                aria-label="Способности монстра"
+                placeholder="Способности"
+                value={monsterAbilities}
+                onChange={(event) => setMonsterAbilities(event.target.value)}
+              />
+              <textarea
+                aria-label="Урон монстра"
+                placeholder="Атаки и урон"
+                value={monsterDamage}
+                onChange={(event) => setMonsterDamage(event.target.value)}
+              />
+              <textarea
+                aria-label="Предметы монстра"
+                placeholder="Предметы"
+                value={monsterItems}
+                onChange={(event) => setMonsterItems(event.target.value)}
+              />
+              <textarea
+                aria-label="Заметки о монстре"
+                placeholder="Заметки"
+                value={monsterNotes}
+                onChange={(event) => setMonsterNotes(event.target.value)}
               />
               <button className="secondary">Добавить монстров</button>
             </form>
@@ -415,6 +485,16 @@ export function HostCombatPanel({
               value={condition}
               onChange={(event) => setCondition(event.target.value)}
             />
+            <label className="checkbox-inline">
+              <input
+                type="checkbox"
+                checked={persistentCondition}
+                onChange={(event) =>
+                  setPersistentCondition(event.target.checked)
+                }
+              />
+              Сохранить в карточке персонажа
+            </label>
             <button onClick={addCondition} disabled={selected.length !== 1}>
               Добавить состояние
             </button>

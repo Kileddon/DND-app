@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { api, type DiceRoll, type Snapshot } from "../api";
 import { ErrorNotice } from "./ErrorNotice";
@@ -13,8 +13,18 @@ const selectionLabels: Record<Selection, string> = {
 
 interface RollAnimation {
   spinning: boolean;
-  face: number;
+  faces: number[][];
+  bonus: number;
   roll?: DiceRoll;
+}
+
+function expressionParts(expression: string) {
+  const match = /^(\d*)d(\d+)([+-]\d+)?$/i.exec(expression);
+  return {
+    count: Number(match?.[1] || 1),
+    sides: Number(match?.[2] || 20),
+    bonus: Number(match?.[3] || 0),
+  };
 }
 
 export function DicePanel({
@@ -31,16 +41,49 @@ export function DicePanel({
   const [animation, setAnimation] = useState<RollAnimation>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
+  const intervalRef = useRef<number | undefined>(undefined);
+  const timeoutRef = useRef<number | undefined>(undefined);
 
-  async function roll(expression: string, faceCount: number) {
+  function clearAnimationTimers() {
+    if (intervalRef.current) window.clearInterval(intervalRef.current);
+    if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+    intervalRef.current = undefined;
+    timeoutRef.current = undefined;
+  }
+
+  useEffect(() => clearAnimationTimers, []);
+
+  async function roll(expression: string) {
     if (pending) return;
     setPending(true);
     setError(undefined);
-    setAnimation({ spinning: true, face: 1 });
-    const interval = window.setInterval(() => {
+    const parts = expressionParts(expression);
+    const attemptCount = selection === "neutral" ? 1 : 2;
+    let frame = 0;
+    setAnimation({
+      spinning: true,
+      bonus: parts.bonus,
+      faces: Array.from({ length: attemptCount }, (_, attemptIndex) =>
+        Array.from(
+          { length: parts.count },
+          (_, dieIndex) => ((attemptIndex + dieIndex) % parts.sides) + 1,
+        ),
+      ),
+    });
+    intervalRef.current = window.setInterval(() => {
+      frame += 1;
       setAnimation((current) =>
         current
-          ? { ...current, face: Math.floor(Math.random() * faceCount) + 1 }
+          ? {
+              ...current,
+              faces: current.faces.map((attempt, attemptIndex) =>
+                attempt.map(
+                  (_, dieIndex) =>
+                    ((frame + dieIndex * 3 + attemptIndex * 7) % parts.sides) +
+                    1,
+                ),
+              ),
+            }
           : current,
       );
     }, 70);
@@ -52,17 +95,21 @@ export function DicePanel({
           expression,
           selection,
         ),
-        new Promise((resolve) => window.setTimeout(resolve, 2000)),
+        new Promise((resolve) => {
+          timeoutRef.current = window.setTimeout(resolve, 2000);
+        }),
       ]);
-      window.clearInterval(interval);
+      clearAnimationTimers();
+      const rolled = response.data.roll;
       setAnimation({
         spinning: false,
-        face: response.data.roll.result,
-        roll: response.data.roll,
+        bonus: parts.bonus,
+        faces: rolled.attempts.length ? rolled.attempts : [rolled.values],
+        roll: rolled,
       });
       refresh();
     } catch (reason) {
-      window.clearInterval(interval);
+      clearAnimationTimers();
       setAnimation(undefined);
       setError(reason);
     } finally {
@@ -73,7 +120,7 @@ export function DicePanel({
   function customRoll(event: FormEvent) {
     event.preventDefault();
     const modifier = bonus === 0 ? "" : bonus > 0 ? `+${bonus}` : `${bonus}`;
-    void roll(`${count}d${sides}${modifier}`, sides);
+    void roll(`${count}d${sides}${modifier}`);
   }
 
   const history = [...(snapshot.dice_rolls ?? [])].reverse().slice(0, 30);
@@ -90,7 +137,6 @@ export function DicePanel({
         </div>
       </div>
       <ErrorNotice error={error} />
-
       <div className="roll-selection" role="group" aria-label="Режим броска">
         {(Object.keys(selectionLabels) as Selection[]).map((value) => (
           <button
@@ -103,27 +149,26 @@ export function DicePanel({
           </button>
         ))}
       </div>
-
       <div className="quick-dice">
         {[20, 6, 4, 100].map((faceCount) => (
           <button
             key={faceCount}
             className="die-button"
             disabled={pending}
-            onClick={() => roll(`1d${faceCount}`, faceCount)}
+            onClick={() => roll(`1d${faceCount}`)}
           >
             <span>d{faceCount}</span>
             <small>Бросить 1d{faceCount}</small>
           </button>
         ))}
       </div>
-
       <form className="custom-roll" onSubmit={customRoll}>
         <h3>Свой бросок</h3>
         <div className="form-grid three">
           <label>
             Количество кубиков
             <input
+              aria-label="Количество кубиков"
               type="number"
               min="1"
               max="100"
@@ -134,6 +179,7 @@ export function DicePanel({
           <label>
             Граней
             <input
+              aria-label="Количество граней"
               type="number"
               min="2"
               max="1000"
@@ -144,6 +190,7 @@ export function DicePanel({
           <label>
             Бонус
             <input
+              aria-label="Бонус броска"
               type="number"
               min="-100000"
               max="100000"
@@ -157,7 +204,6 @@ export function DicePanel({
           {bonus > 0 ? `+${bonus}` : bonus < 0 ? bonus : ""}
         </button>
       </form>
-
       <div className="roll-history stack">
         <h3>История бросков</h3>
         {!history.length && <p className="muted">Бросков пока не было.</p>}
@@ -179,7 +225,9 @@ export function DicePanel({
                       index === item.selected_attempt ? "selected" : ""
                     }
                   >
-                    [{attempt.join(", ")}] ={" "}
+                    [{attempt.join(", ")}]{" "}
+                    {expressionParts(item.expression).bonus >= 0 ? "+" : ""}
+                    {expressionParts(item.expression).bonus} ={" "}
                     {item.attempt_totals[index] ?? item.result}
                   </span>
                 ),
@@ -189,7 +237,6 @@ export function DicePanel({
           </article>
         ))}
       </div>
-
       {animation && (
         <div
           className="dice-overlay"
@@ -198,31 +245,47 @@ export function DicePanel({
           aria-label="Результат броска"
         >
           <div className="dice-animation-card">
-            <span
-              className={animation.spinning ? "rolling-number" : "final-number"}
-            >
-              {animation.face}
-            </span>
             <strong>
               {animation.spinning ? "Кубики катятся…" : "Результат"}
             </strong>
+            <div className="animated-attempts dice-groups">
+              {animation.faces.map((attempt, attemptIndex) => (
+                <div
+                  className={
+                    !animation.spinning &&
+                    attemptIndex === animation.roll?.selected_attempt
+                      ? "selected dice-attempt"
+                      : "dice-attempt"
+                  }
+                  key={attemptIndex}
+                >
+                  <div>
+                    {attempt.map((face, dieIndex) => (
+                      <span
+                        className={
+                          animation.spinning ? "rolling-number" : "final-number"
+                        }
+                        key={dieIndex}
+                      >
+                        {face}
+                      </span>
+                    ))}
+                  </div>
+                  {!animation.spinning && animation.roll && (
+                    <small>
+                      {animation.bonus >= 0 ? "+" : ""}
+                      {animation.bonus} ={" "}
+                      {animation.roll.attempt_totals[attemptIndex]}
+                    </small>
+                  )}
+                </div>
+              ))}
+            </div>
             {!animation.spinning && animation.roll && (
               <>
-                <div className="animated-attempts">
-                  {animation.roll.attempts.map((attempt, index) => (
-                    <span
-                      key={index}
-                      className={
-                        index === animation.roll?.selected_attempt
-                          ? "selected"
-                          : ""
-                      }
-                    >
-                      [{attempt.join(", ")}] ={" "}
-                      {animation.roll?.attempt_totals[index]}
-                    </span>
-                  ))}
-                </div>
+                <strong className="roll-total">
+                  Итого: {animation.roll.result}
+                </strong>
                 <button
                   className="primary"
                   onClick={() => setAnimation(undefined)}

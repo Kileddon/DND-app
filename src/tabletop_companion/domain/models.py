@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 
+from tabletop_companion.domain.character_creation import (
+    SlotCompatibility,
+    inventory_weight,
+    slot_is_compatible,
+)
 from tabletop_companion.domain.errors import (
     DomainValidationError,
     PermissionDeniedError,
@@ -36,6 +42,16 @@ class Room:
 
 
 @dataclass(frozen=True, slots=True)
+class Account:
+    id: str
+    display_name: str
+    version: int
+    created_at: datetime
+    updated_at: datetime
+    cloud_identity: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class LocalPlayer:
     id: str
     room_id: str
@@ -45,6 +61,7 @@ class LocalPlayer:
     selected_character_id: str | None = None
     updated_at: datetime | None = None
     removed_at: datetime | None = None
+    account_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +94,13 @@ class CharacterDraft:
     updated_at: datetime
     race_id: str = "human"
     class_id: str = "fighter"
+    account_id: str | None = None
+    step: str = "name"
+    species_choices: dict[str, str] = field(default_factory=dict)
+    stat_method: str | None = None
+    base_stats: dict[str, int] = field(default_factory=dict)
+    background: dict[str, object] = field(default_factory=dict)
+    random_rolls: list[dict[str, object]] = field(default_factory=list)
 
     def ensure_active(self) -> None:
         if self.status is not DraftStatus.ACTIVE:
@@ -96,6 +120,8 @@ class ItemDefinition:
     name: str
     consumable: bool
     locked: bool
+    unit_weight: Decimal = Decimal("0")
+    slot_compatibility: SlotCompatibility = SlotCompatibility.NONE
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +135,9 @@ class InventoryItem:
     equipped: bool
     charges: int | None
     created_at: datetime
+    unit_weight: Decimal = Decimal("0")
+    slot_compatibility: SlotCompatibility = SlotCompatibility.NONE
+    equipment_slot: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +167,18 @@ class Character:
     max_hp: int = 10
     current_hp: int = 10
     armor_class: int = 10
+    account_id: str | None = None
+    archived_at: datetime | None = None
+    level: int = 1
+    experience: int = 0
+    temporary_hp: int = 0
+    initiative: int = 0
+    proficiency_bonus: int = 2
+    size: str = "medium"
+    speed: int = 30
+    darkvision: int = 0
+    species_choices: dict[str, str] = field(default_factory=dict)
+    persistent_conditions: list[dict[str, object]] = field(default_factory=list)
 
     def ensure_version(self, expected_version: int) -> None:
         if expected_version != self.version:
@@ -158,6 +199,16 @@ class Character:
         current_hp: int,
         armor_class: int,
         expected_version: int,
+        temporary_hp: int = 0,
+        level: int = 1,
+        experience: int = 0,
+        initiative: int = 0,
+        proficiency_bonus: int = 2,
+        size: str = "medium",
+        speed: int = 30,
+        darkvision: int = 0,
+        species_choices: dict[str, str] | None = None,
+        persistent_conditions: list[dict[str, object]] | None = None,
     ) -> None:
         self.ensure_version(expected_version)
         normalized_name = name.strip()
@@ -167,6 +218,12 @@ class Character:
             raise DomainValidationError("Character health values are invalid.")
         if armor_class <= 0:
             raise DomainValidationError("Armor class must be positive.")
+        if temporary_hp < 0 or not 1 <= level <= 20 or experience < 0:
+            raise DomainValidationError("Character progression or temporary HP is invalid.")
+        if not 2 <= proficiency_bonus <= 10 or size not in {"small", "medium"}:
+            raise DomainValidationError("Character proficiency or size is invalid.")
+        if not 0 <= speed <= 200 or not 0 <= darkvision <= 1000:
+            raise DomainValidationError("Character movement or darkvision is invalid.")
         if any(not 1 <= value <= 30 for value in stats.values()):
             raise DomainValidationError("Character attributes must be between 1 and 30.")
         self.name = normalized_name
@@ -177,6 +234,18 @@ class Character:
         self.max_hp = max_hp
         self.current_hp = current_hp
         self.armor_class = armor_class
+        self.temporary_hp = temporary_hp
+        self.level = level
+        self.experience = experience
+        self.initiative = initiative
+        self.proficiency_bonus = proficiency_bonus
+        self.size = size
+        self.speed = speed
+        self.darkvision = darkvision
+        if species_choices is not None:
+            self.species_choices = dict(species_choices)
+        if persistent_conditions is not None:
+            self.persistent_conditions = [dict(item) for item in persistent_conditions]
         self.version += 1
 
     def add_item(self, item: InventoryItem, *, expected_version: int) -> None:
@@ -188,6 +257,50 @@ class Character:
         if any(existing.id == item.id for existing in self.inventory):
             raise StateConflictError("Inventory item already exists.")
         self.inventory.append(item)
+        self.version += 1
+
+    @property
+    def total_weight(self) -> Decimal:
+        return inventory_weight([(item.unit_weight, item.quantity) for item in self.inventory])
+
+    def equip(self, item_id: str, slot: str, *, expected_version: int) -> None:
+        self.ensure_version(expected_version)
+        item = self._item(item_id)
+        if item.equipment_slot == slot:
+            self.version += 1
+            return
+        if any(candidate.equipment_slot == slot for candidate in self.inventory):
+            raise StateConflictError("Equipment slot is occupied.", code="equipment_slot_occupied")
+        if not slot_is_compatible(item.slot_compatibility, slot):
+            raise DomainValidationError(
+                "Item is not compatible with this equipment slot.",
+                code="incompatible_equipment_slot",
+            )
+        self._replace_item(item, equipment_slot=slot)
+        self.version += 1
+
+    def unequip(self, item_id: str, *, expected_version: int) -> None:
+        self.ensure_version(expected_version)
+        item = self._item(item_id)
+        if item.equipment_slot is None:
+            self.version += 1
+            return
+        self._replace_item(item, equipment_slot=None)
+        self.version += 1
+
+    def archive(self, *, now: datetime, expected_version: int, active_encounter: bool) -> None:
+        self.ensure_version(expected_version)
+        if active_encounter:
+            raise StateConflictError(
+                "A character in an active encounter cannot be archived.",
+                code="character_in_active_encounter",
+            )
+        self.archived_at = now
+        self.version += 1
+
+    def restore(self, *, expected_version: int) -> None:
+        self.ensure_version(expected_version)
+        self.archived_at = None
         self.version += 1
 
     def discard(self, item_id: str, quantity: int, *, expected_version: int) -> DiscardResult:
@@ -203,7 +316,7 @@ class Character:
             )
         if item.locked:
             raise PermissionDeniedError("This item is locked and cannot be discarded.")
-        if item.equipped:
+        if item.equipped or item.equipment_slot is not None:
             raise StateConflictError(
                 "Equipped items must be unequipped before they can be discarded.",
                 code="item_equipped",
@@ -229,6 +342,9 @@ class Character:
                 equipped=item.equipped,
                 charges=item.charges,
                 created_at=item.created_at,
+                unit_weight=item.unit_weight,
+                slot_compatibility=item.slot_compatibility,
+                equipment_slot=item.equipment_slot,
             )
             self.inventory[self.inventory.index(item)] = replacement
 
@@ -238,6 +354,30 @@ class Character:
             discarded_quantity=quantity,
             remaining_quantity=remaining,
             removed=removed,
+        )
+
+    def _item(self, item_id: str) -> InventoryItem:
+        item = next((candidate for candidate in self.inventory if candidate.id == item_id), None)
+        if item is None:
+            raise DomainValidationError(
+                "Inventory item does not belong to the character.", details={"item_id": item_id}
+            )
+        return item
+
+    def _replace_item(self, item: InventoryItem, *, equipment_slot: str | None) -> None:
+        self.inventory[self.inventory.index(item)] = InventoryItem(
+            id=item.id,
+            definition_id=item.definition_id,
+            name=item.name,
+            consumable=item.consumable,
+            locked=item.locked,
+            quantity=item.quantity,
+            equipped=equipment_slot is not None,
+            charges=item.charges,
+            created_at=item.created_at,
+            unit_weight=item.unit_weight,
+            slot_compatibility=item.slot_compatibility,
+            equipment_slot=equipment_slot,
         )
 
 

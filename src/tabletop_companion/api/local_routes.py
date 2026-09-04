@@ -32,6 +32,7 @@ from tabletop_companion.api.runtime import (
 from tabletop_companion.api.schemas import (
     AddInventoryItemRequest,
     BootstrapRoomRequest,
+    CharacterLifecycleRequest,
     CharacterSelectRequest,
     CharacterUpdateRequest,
     ChooseAbilityCardRequest,
@@ -40,6 +41,7 @@ from tabletop_companion.api.schemas import (
     DeviceRevokeRequest,
     DiagnosticsView,
     DiscardInventoryItemRequest,
+    EquipInventoryItemRequest,
     GmNotesUpdateRequest,
     LocalCommandResponse,
     NpcNoteCreateRequest,
@@ -58,9 +60,11 @@ from tabletop_companion.api.schemas import (
 from tabletop_companion.application.combat_service import CombatService
 from tabletop_companion.application.commands import (
     AddInventoryItemCommand,
+    CharacterLifecycleCommand,
     ChooseAbilityCardCommand,
     ConfirmCharacterDraftCommand,
     DiscardInventoryItemCommand,
+    EquipInventoryItemCommand,
     RestartCharacterDraftCommand,
     StartCharacterDraftCommand,
 )
@@ -196,6 +200,7 @@ def register_local_routes(
     async def snapshot_with_presence(current: LocalDevice) -> dict[str, Any]:
         data = local_service.snapshot(current)
         data["combat"] = combat_service.snapshot(current)
+        data["encounters"] = combat_service.encounters(current)
         presence = await hub.device_presence(current.room_id)
         devices = data.get("devices", [])
         if isinstance(devices, list):
@@ -389,9 +394,11 @@ def register_local_routes(
     @app.get("/api/v2/characters/{character_id}", tags=["characters"])
     async def get_character(character_id: UUID, current: CurrentDevice) -> dict[str, Any]:
         character = companion_service.get_character(str(character_id))
-        if current.role is not DeviceRole.GM and character["owner_id"] != current.player_id:
+        if current.role is not DeviceRole.GM and character["account_id"] != (
+            current.account_id or current.player_id
+        ):
             raise PermissionDeniedError("The device does not control this character.")
-        if character["room_id"] != current.room_id:
+        if not companion_service.character_is_assigned(str(character_id), current.room_id):
             raise PermissionDeniedError("Character does not belong to this room.")
         return character
 
@@ -418,6 +425,12 @@ def register_local_routes(
                 actor_id=current.id,
                 expression=payload.expression,
                 selection=payload.selection,
+                visibility=payload.visibility,
+                mode=payload.mode,
+                recipient_player_id=(
+                    str(payload.recipient_player_id) if payload.recipient_player_id else None
+                ),
+                physical_result=payload.physical_result,
             ),
             current,
         )
@@ -488,6 +501,13 @@ def register_local_routes(
                 name=payload.name,
                 race_id=payload.race_id,
                 class_id=payload.class_id,
+                species_choices=payload.species_choices,
+                stat_method=payload.stat_method,
+                stats=payload.stats,
+                background_pattern=payload.background_pattern,
+                background_stats=payload.background_stats,
+                background_allocations=payload.background_allocations,
+                ruleset_version="character-v2",
             )
         )
         await _publish(hub, outcome)
@@ -515,6 +535,63 @@ def register_local_routes(
                 draft_id=str(draft_id),
                 card_id=payload.card_id,
                 expected_version=payload.expected_version,
+            )
+        )
+        await _publish(hub, outcome)
+        return _command_response(outcome)
+
+    @app.post(
+        "/api/v2/characters/{character_id}/inventory/{item_id}/equipment",
+        response_model=LocalCommandResponse,
+        tags=["inventory"],
+    )
+    async def equip_item(
+        character_id: UUID,
+        item_id: UUID,
+        payload: EquipInventoryItemRequest,
+        current: CurrentDevice,
+    ) -> LocalCommandResponse:
+        _ensure_matching_device(payload.device_id, current)
+        if current.player_id is None or str(payload.actor_id) != current.player_id:
+            raise PermissionDeniedError("The device does not control this character.")
+        outcome = companion_service.equip_inventory_item(
+            EquipInventoryItemCommand(
+                command_id=str(payload.command_id),
+                device_id=current.id,
+                client_time=_client_time(payload.client_time),
+                actor_id=current.player_id,
+                character_id=str(character_id),
+                item_id=str(item_id),
+                slot=payload.slot,
+                expected_version=payload.expected_version,
+            )
+        )
+        await _publish(hub, outcome)
+        return _command_response(outcome)
+
+    @app.post(
+        "/api/v2/me/characters/{character_id}/lifecycle",
+        response_model=LocalCommandResponse,
+        tags=["characters"],
+    )
+    async def character_lifecycle(
+        character_id: UUID,
+        payload: CharacterLifecycleRequest,
+        current: CurrentDevice,
+    ) -> LocalCommandResponse:
+        _ensure_matching_device(payload.device_id, current)
+        if current.player_id is None:
+            raise PermissionDeniedError("Create a local profile first.")
+        outcome = companion_service.change_character_lifecycle(
+            CharacterLifecycleCommand(
+                command_id=str(payload.command_id),
+                device_id=current.id,
+                client_time=_client_time(payload.client_time),
+                actor_id=current.player_id,
+                character_id=str(character_id),
+                room_id=current.room_id,
+                expected_version=payload.expected_version,
+                action=payload.action,
             )
         )
         await _publish(hub, outcome)
@@ -630,6 +707,8 @@ def register_local_routes(
                 equipped=payload.equipped,
                 charges=payload.charges,
                 expected_version=payload.expected_version,
+                unit_weight=payload.unit_weight,
+                slot_compatibility=payload.slot_compatibility,
             )
         )
         await _publish(hub, outcome)
@@ -856,6 +935,16 @@ def register_local_routes(
                 current_hp=payload.current_hp,
                 armor_class=payload.armor_class,
                 expected_version=payload.expected_version,
+                temporary_hp=payload.temporary_hp,
+                level=payload.level,
+                experience=payload.experience,
+                initiative=payload.initiative,
+                proficiency_bonus=payload.proficiency_bonus,
+                size=payload.size,
+                speed=payload.speed,
+                darkvision=payload.darkvision,
+                species_choices=payload.species_choices,
+                persistent_conditions=payload.persistent_conditions,
             ),
             current,
         )

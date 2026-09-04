@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from tabletop_companion.domain.access import DeviceRole
-from tabletop_companion.domain.combat import RollSelection
+from tabletop_companion.domain.combat import RollMode, RollSelection, RollVisibility
 from tabletop_companion.domain.models import AccessMode
 from tabletop_companion.domain.sessions import SessionStatus
 
@@ -62,6 +62,12 @@ class StartCharacterDraftRequest(CommandRequest):
     name: str = Field(min_length=1, max_length=80)
     race_id: str = Field(default="human", min_length=1, max_length=40)
     class_id: str = Field(default="fighter", min_length=1, max_length=40)
+    species_choices: dict[str, str] = Field(default_factory=dict)
+    stat_method: str = Field(default="standard", pattern="^(standard|random|point_buy)$")
+    stats: dict[str, int] = Field(default_factory=dict)
+    background_pattern: str = Field(default="1+1+1", pattern=r"^(2\+1|1\+1\+1)$")
+    background_stats: tuple[str, str, str] = ("strength", "dexterity", "constitution")
+    background_allocations: dict[str, int] = Field(default_factory=dict)
 
 
 class ChooseAbilityCardRequest(CommandRequest):
@@ -86,6 +92,19 @@ class AddInventoryItemRequest(CommandRequest):
     equipped: bool = False
     charges: int | None = Field(default=None, ge=0)
     expected_version: int = Field(ge=1)
+    unit_weight: str = Field(default="0", pattern=r"^\d+(?:\.\d{1,3})?$")
+    slot_compatibility: str = Field(default="none", pattern="^(hand|armor|other|none)$")
+
+
+class EquipInventoryItemRequest(CommandRequest):
+    actor_id: UUID
+    slot: str | None = Field(default=None, pattern="^(left_hand|right_hand|armor|other_[1-4])$")
+    expected_version: int = Field(ge=1)
+
+
+class CharacterLifecycleRequest(CommandRequest):
+    expected_version: int = Field(ge=1)
+    action: str = Field(pattern="^(assign|archive|restore)$")
 
 
 class DiscardInventoryItemRequest(CommandRequest):
@@ -97,6 +116,10 @@ class DiscardInventoryItemRequest(CommandRequest):
 class RoomDiceRollRequest(CommandRequest):
     expression: str = Field(min_length=2, max_length=32)
     selection: RollSelection = RollSelection.NEUTRAL
+    visibility: RollVisibility = RollVisibility.PUBLIC
+    mode: RollMode = RollMode.DIGITAL
+    recipient_player_id: UUID | None = None
+    physical_result: int | None = None
 
 
 class AbilityCardView(BaseModel):
@@ -148,6 +171,12 @@ class CharacterDraftView(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+    step: str = "name"
+    species_choices: dict[str, str] = Field(default_factory=dict)
+    stat_method: str | None = None
+    base_stats: dict[str, int] = Field(default_factory=dict)
+    background: dict[str, Any] = Field(default_factory=dict)
+    random_rolls: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class InventoryItemView(BaseModel):
@@ -160,6 +189,9 @@ class InventoryItemView(BaseModel):
     equipped: bool
     charges: int | None
     created_at: datetime
+    unit_weight: str = "0"
+    slot_compatibility: str = "none"
+    equipment_slot: str | None = None
 
 
 class CharacterView(BaseModel):
@@ -179,6 +211,18 @@ class CharacterView(BaseModel):
     inventory: list[InventoryItemView]
     version: int
     created_at: datetime
+    account_id: UUID | None = None
+    archived_at: datetime | None = None
+    level: int = 1
+    experience: int = 0
+    temporary_hp: int = 0
+    initiative: int = 0
+    proficiency_bonus: int = 2
+    size: str = "medium"
+    speed: int = 30
+    darkvision: int = 0
+    species_choices: dict[str, str] = Field(default_factory=dict)
+    total_weight: str = "0"
 
 
 class EventView(BaseModel):
@@ -261,6 +305,16 @@ class CharacterUpdateRequest(CommandRequest):
     current_hp: int = Field(ge=0, le=100000)
     armor_class: int = Field(ge=1, le=1000)
     expected_version: int = Field(ge=1)
+    temporary_hp: int = Field(default=0, ge=0, le=100000)
+    level: int = Field(default=1, ge=1, le=20)
+    experience: int = Field(default=0, ge=0)
+    initiative: int = Field(default=0, ge=-20, le=20)
+    proficiency_bonus: int = Field(default=2, ge=2, le=10)
+    size: str = Field(default="medium", pattern="^(small|medium)$")
+    speed: int = Field(default=30, ge=0, le=200)
+    darkvision: int = Field(default=0, ge=0, le=1000)
+    species_choices: dict[str, str] = Field(default_factory=dict)
+    persistent_conditions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class GmNotesUpdateRequest(CommandRequest):

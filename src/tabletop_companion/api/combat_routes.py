@@ -46,7 +46,7 @@ from tabletop_companion.domain.combat import (
 
 
 class CreateCombatRequest(CommandRequest):
-    pass
+    name: str = Field(default="Энкаунтер", min_length=1, max_length=120)
 
 
 class CombatVersionRequest(CommandRequest):
@@ -71,6 +71,10 @@ class MonsterTemplateRequest(CommandRequest):
     notes: str = Field(default="", max_length=2000)
     conditions: list[str] = Field(default_factory=list, max_length=50)
     actions: list[str] = Field(default_factory=list, max_length=50)
+    species: str = Field(default="", max_length=120)
+    abilities: str = Field(default="", max_length=4000)
+    damage: str = Field(default="", max_length=1000)
+    items: str = Field(default="", max_length=4000)
 
 
 class AddMonstersRequest(CombatVersionRequest):
@@ -114,6 +118,7 @@ class ConditionRequest(CommandRequest):
     description: str = Field(default="", max_length=1000)
     source_id: UUID | None = None
     visible_to_players: bool = True
+    persistent: bool = False
 
 
 class WoundDisplayRequest(CombatVersionRequest):
@@ -187,6 +192,7 @@ def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) 
                 _client_time(payload.client_time),
                 str(room_id),
                 str(session_id),
+                payload.name,
             ),
             current,
         )
@@ -217,6 +223,10 @@ def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) 
                 payload.notes,
                 tuple(payload.conditions),
                 tuple(payload.actions),
+                payload.species,
+                payload.abilities,
+                payload.damage,
+                payload.items,
             ),
             current,
         )
@@ -437,6 +447,7 @@ def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) 
                 payload.description,
                 str(payload.source_id) if payload.source_id else None,
                 payload.visible_to_players,
+                payload.persistent,
             ),
             current,
         )

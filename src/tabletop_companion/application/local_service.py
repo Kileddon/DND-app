@@ -44,6 +44,11 @@ from tabletop_companion.domain.access import (
     PasswordPolicy,
     RoomInvitation,
 )
+from tabletop_companion.domain.character_creation import (
+    CLASS_DEFINITIONS,
+    STAT_DESCRIPTIONS,
+    STAT_NAMES,
+)
 from tabletop_companion.domain.combat import (
     DiceExpression,
     DiceRoll,
@@ -61,6 +66,7 @@ from tabletop_companion.domain.errors import (
 from tabletop_companion.domain.events import DomainEvent
 from tabletop_companion.domain.models import (
     AccessMode,
+    Account,
     GmNotes,
     InventoryItem,
     ItemDefinition,
@@ -70,6 +76,7 @@ from tabletop_companion.domain.models import (
 )
 from tabletop_companion.domain.rules import SimpleRuleset
 from tabletop_companion.domain.sessions import GameSession, SessionStatus
+from tabletop_companion.domain.species import SPECIES, validate_species_choices
 
 CommandT = TypeVar("CommandT")
 LocalUnitOfWorkFactory = Callable[[], LocalMultiplayerUnitOfWork]
@@ -324,6 +331,14 @@ class LocalMultiplayerService:
             room = uow.get_room(device.room_id)
             self._authorize_room_join(uow, room, command.password, command.invitation_token)
             now = self._clock()
+            account_id = self._id_factory()
+            account = Account(
+                id=account_id,
+                display_name=command.display_name.strip(),
+                version=1,
+                created_at=now,
+                updated_at=now,
+            )
             player = LocalPlayer(
                 id=self._id_factory(),
                 room_id=room.id,
@@ -331,10 +346,13 @@ class LocalMultiplayerService:
                 version=1,
                 created_at=now,
                 updated_at=now,
+                account_id=account_id,
             )
             if not player.display_name:
                 raise DomainValidationError("Player display name must not be blank.")
             device.attach_player(player.id, now)
+            device.attach_account(account_id)
+            uow.add_account(account)
             uow.add_local_player(player)
             uow.save_local_device(device)
             uow.add_event(
@@ -360,8 +378,14 @@ class LocalMultiplayerService:
         def operation(uow: LocalMultiplayerUnitOfWork) -> ResultData:
             player = uow.get_local_player(command.player_id)
             character = uow.get_character(command.character_id)
-            if character.owner_id != player.id or character.room_id != principal.room_id:
+            if character.account_id != (player.account_id or player.id):
                 raise PermissionDeniedError("The player does not control this character.")
+            if character.archived_at is not None:
+                raise StateConflictError(
+                    "Archived characters cannot be selected.", code="character_archived"
+                )
+            if not uow.is_character_assigned(character.id, principal.room_id):
+                raise PermissionDeniedError("The character is not assigned to this room.")
             if player.version != command.expected_version:
                 raise StateConflictError(
                     "Player profile version is stale.",
@@ -620,6 +644,18 @@ class LocalMultiplayerService:
                 for character_class in self._ruleset.classes
             ],
             "abilities": [self._ability_data(card) for card in self._ruleset.cards],
+            "class_details": [asdict(item) for item in CLASS_DEFINITIONS],
+            "species": [
+                {
+                    **asdict(item),
+                    "features": [asdict(feature) for feature in item.features],
+                }
+                for item in SPECIES
+            ],
+            "stats": [
+                {"id": stat_id, "name": STAT_NAMES[stat_id], "description": description}
+                for stat_id, description in STAT_DESCRIPTIONS.items()
+            ],
         }
 
     def roll_room_dice(
@@ -627,6 +663,8 @@ class LocalMultiplayerService:
     ) -> CommandOutcome:
         if principal.room_id != command.room_id or principal.id != command.actor_id:
             raise PermissionDeniedError("Device does not belong to this room.")
+        if principal.role is DeviceRole.PLAYER and command.visibility is RollVisibility.SECRET:
+            raise PermissionDeniedError("Only the GM can make secret rolls.")
 
         def operation(uow: LocalMultiplayerUnitOfWork) -> ResultData:
             expression = DiceExpression.parse(command.expression)
@@ -636,7 +674,28 @@ class LocalMultiplayerService:
                     raise PermissionDeniedError("Player profile is required.")
                 player = uow.get_local_player(principal.player_id)
                 character_id = player.selected_character_id
-            attempts, totals, selected = expression.roll_selected(command.selection, self._randint)
+            if command.visibility is RollVisibility.PRIVATE and command.recipient_player_id is None:
+                raise DomainValidationError(
+                    "A private roll requires a recipient.", code="private_roll_recipient_required"
+                )
+            if command.recipient_player_id is not None:
+                recipient = uow.get_local_player(command.recipient_player_id)
+                if recipient.room_id != command.room_id:
+                    raise PermissionDeniedError("Roll recipient does not belong to this room.")
+            attempts: tuple[tuple[int, ...], ...]
+            totals: tuple[int, ...]
+            if command.mode is RollMode.PHYSICAL:
+                if command.physical_result is None:
+                    raise DomainValidationError(
+                        "A physical roll requires a manual result.", code="physical_result_required"
+                    )
+                attempts = ((command.physical_result,),)
+                totals = (command.physical_result,)
+                selected = 0
+            else:
+                attempts, totals, selected = expression.roll_selected(
+                    command.selection, self._randint
+                )
             roll = DiceRoll(
                 id=self._id_factory(),
                 combat_id=None,
@@ -644,9 +703,9 @@ class LocalMultiplayerService:
                 actor_id=principal.id,
                 character_id=character_id,
                 expression=expression.normalized(),
-                mode=RollMode.DIGITAL,
-                visibility=RollVisibility.PUBLIC,
-                recipient_player_id=None,
+                mode=command.mode,
+                visibility=command.visibility,
+                recipient_player_id=command.recipient_player_id,
                 values=attempts[selected],
                 original_result=totals[selected],
                 result=totals[selected],
@@ -669,7 +728,17 @@ class LocalMultiplayerService:
                     actor_id=principal.id,
                     command_id=command.command_id,
                     payload={"roll": self._roll_data(roll)},
-                    visibility="room",
+                    visibility=(
+                        "room"
+                        if command.visibility is RollVisibility.PUBLIC
+                        else "gm"
+                        if command.visibility is RollVisibility.SECRET
+                        else (
+                            f"players:{principal.player_id},{command.recipient_player_id}"
+                            if command.visibility is RollVisibility.PRIVATE
+                            else f"player:{principal.player_id}"
+                        )
+                    ),
                     session_id=session.id if session else None,
                 )
             )
@@ -684,7 +753,7 @@ class LocalMultiplayerService:
 
         def operation(uow: LocalMultiplayerUnitOfWork) -> ResultData:
             character = uow.get_character(command.character_id)
-            if character.room_id != command.room_id:
+            if not uow.is_character_assigned(character.id, command.room_id):
                 raise PermissionDeniedError("Character does not belong to this room.")
             self._ruleset.validate_character_choices(
                 race_id=command.race_id,
@@ -692,6 +761,8 @@ class LocalMultiplayerService:
                 stats=command.stats,
                 ability_ids=command.ability_ids,
             )
+            if command.species_choices is not None:
+                validate_species_choices(command.race_id, command.species_choices)
             character.edit(
                 name=command.name,
                 race_id=command.race_id,
@@ -702,6 +773,16 @@ class LocalMultiplayerService:
                 current_hp=command.current_hp,
                 armor_class=command.armor_class,
                 expected_version=command.expected_version,
+                temporary_hp=command.temporary_hp,
+                level=command.level,
+                experience=command.experience,
+                initiative=command.initiative,
+                proficiency_bonus=command.proficiency_bonus,
+                size=command.size,
+                speed=command.speed,
+                darkvision=command.darkvision,
+                species_choices=command.species_choices,
+                persistent_conditions=command.persistent_conditions,
             )
             uow.save_character(character)
             uow.add_event(
@@ -709,7 +790,7 @@ class LocalMultiplayerService:
                     event_type="CharacterEditedByGm",
                     aggregate_type="character",
                     aggregate_id=character.id,
-                    room_id=character.room_id,
+                    room_id=command.room_id,
                     actor_id=command.actor_id,
                     command_id=command.command_id,
                     payload={"character_id": character.id, "version": character.version},
@@ -727,7 +808,7 @@ class LocalMultiplayerService:
 
         def operation(uow: LocalMultiplayerUnitOfWork) -> ResultData:
             character = uow.get_character(command.character_id)
-            if character.room_id != command.room_id:
+            if not uow.is_character_assigned(character.id, command.room_id):
                 raise PermissionDeniedError("Character does not belong to this room.")
             name = command.name.strip()
             if not name:
@@ -752,7 +833,7 @@ class LocalMultiplayerService:
                     event_type="ItemGrantedByGm",
                     aggregate_type="character",
                     aggregate_id=character.id,
-                    room_id=character.room_id,
+                    room_id=command.room_id,
                     actor_id=command.actor_id,
                     command_id=command.command_id,
                     payload={"item_id": item.id, "name": item.name},
@@ -770,7 +851,7 @@ class LocalMultiplayerService:
 
         def operation(uow: LocalMultiplayerUnitOfWork) -> ResultData:
             character = uow.get_character(command.character_id)
-            if character.room_id != command.room_id:
+            if not uow.is_character_assigned(character.id, command.room_id):
                 raise PermissionDeniedError("Character does not belong to this room.")
             item = next(
                 (candidate for candidate in character.inventory if candidate.id == command.item_id),
@@ -787,7 +868,7 @@ class LocalMultiplayerService:
                     event_type="ItemRemovedByGm",
                     aggregate_type="character",
                     aggregate_id=character.id,
-                    room_id=character.room_id,
+                    room_id=command.room_id,
                     actor_id=command.actor_id,
                     command_id=command.command_id,
                     payload={"item_id": item.id, "name": item.name},
@@ -995,9 +1076,13 @@ class LocalMultiplayerService:
                 for roll in uow.list_room_dice_rolls(room.id)
                 if principal.role is DeviceRole.GM
                 or roll.visibility is RollVisibility.PUBLIC
+                or (roll.visibility is RollVisibility.DELAYED and roll.actor_id == principal.id)
                 or (
                     roll.visibility is RollVisibility.PRIVATE
-                    and roll.recipient_player_id == principal.player_id
+                    and (
+                        roll.recipient_player_id == principal.player_id
+                        or roll.actor_id == principal.id
+                    )
                 )
             ]
             if principal.role is DeviceRole.GM:
@@ -1038,7 +1123,12 @@ class LocalMultiplayerService:
                 }
             player = uow.get_local_player(principal.player_id)
             characters = uow.list_characters_for_player(player.id)
-            own_devices = [device for device in all_devices if device.player_id == player.id]
+            archived = uow.list_archived_characters_for_player(player.id)
+            own_devices = [
+                device
+                for device in all_devices
+                if device.account_id == player.account_id or device.player_id == player.id
+            ]
             return {
                 "cursor": cursor,
                 "current_device_id": principal.id,
@@ -1053,6 +1143,7 @@ class LocalMultiplayerService:
                     }
                     for character in characters
                 ],
+                "archived_characters": [self._character_summary(item) for item in archived],
                 "devices": [self._device_data(device) for device in own_devices],
                 "dice_rolls": visible_rolls,
             }
@@ -1068,6 +1159,11 @@ class LocalMultiplayerService:
                 event
                 for event in events
                 if event.visibility in {"room", f"player:{principal.player_id}"}
+                or (
+                    event.visibility.startswith("players:")
+                    and (principal.player_id or "")
+                    in event.visibility.removeprefix("players:").split(",")
+                )
             ]
 
     def cursor_bounds(self, room_id: str) -> tuple[int | None, int]:
@@ -1253,6 +1349,7 @@ class LocalMultiplayerService:
             "display_name": player.display_name,
             "selected_character_id": player.selected_character_id,
             "version": player.version,
+            "account_id": player.account_id,
             "created_at": player.created_at.isoformat(),
             "updated_at": (player.updated_at or player.created_at).isoformat(),
         }
@@ -1322,6 +1419,19 @@ class LocalMultiplayerService:
             "max_hp": character.max_hp,
             "current_hp": character.current_hp,
             "armor_class": character.armor_class,
+            "account_id": character.account_id,
+            "archived_at": (character.archived_at.isoformat() if character.archived_at else None),
+            "level": character.level,
+            "experience": character.experience,
+            "temporary_hp": character.temporary_hp,
+            "initiative": character.initiative,
+            "proficiency_bonus": character.proficiency_bonus,
+            "size": character.size,
+            "speed": character.speed,
+            "darkvision": character.darkvision,
+            "species_choices": dict(character.species_choices),
+            "persistent_conditions": list(character.persistent_conditions),
+            "total_weight": str(character.total_weight),
         }
 
     @staticmethod
@@ -1365,6 +1475,9 @@ class LocalMultiplayerService:
                     "equipped": item.equipped,
                     "charges": item.charges,
                     "created_at": item.created_at.isoformat(),
+                    "unit_weight": str(item.unit_weight),
+                    "slot_compatibility": item.slot_compatibility.value,
+                    "equipment_slot": item.equipment_slot,
                 }
                 for item in character.inventory
             ],

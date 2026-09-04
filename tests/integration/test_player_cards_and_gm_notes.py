@@ -67,7 +67,7 @@ def test_character_card_notes_and_lobby_kick(database_url: str, tmp_path: Path) 
         )["data"]
         assert (character["race_id"], character["class_id"]) == ("dwarf", "rogue")
         assert character["current_hp"] == character["max_hp"] == 11
-        assert character["armor_class"] == 14
+        assert character["armor_class"] == 13
 
         gm_snapshot = body(
             client.get(

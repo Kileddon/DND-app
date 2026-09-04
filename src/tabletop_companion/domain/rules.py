@@ -4,6 +4,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from tabletop_companion.domain.character_creation import (
+    CLASS_DEFINITIONS,
+    derived_statistics,
+    standard_stats,
+)
 from tabletop_companion.domain.errors import (
     ContentConfigurationError,
     DomainValidationError,
@@ -15,6 +20,7 @@ from tabletop_companion.domain.models import (
     CharacterDraft,
     DraftStatus,
 )
+from tabletop_companion.domain.species import SPECIES, species_sheet
 
 CardSampler = Callable[[Sequence[str], int], Sequence[str]]
 
@@ -77,7 +83,9 @@ class SimpleRuleset:
         timestamp = now or datetime.now(UTC)
         self.race(race_id)
         self.character_class(class_id)
-        stats = self.allocate_stats()
+        stats = (
+            standard_stats(class_id) if self.version == "character-v2" else self.allocate_stats()
+        )
         return CharacterDraft(
             id=draft_id,
             room_id=room_id,
@@ -182,15 +190,30 @@ class SimpleRuleset:
         draft.updated_at = timestamp
         character_class = self.character_class(draft.class_id)
         race = self.race(draft.race_id)
-        max_hp = max(
-            1,
-            character_class.base_hp
-            + ability_modifier(draft.stats.get("constitution", 10))
-            + race.hp_bonus,
-        )
-        armor_class = character_class.base_armor_class + min(
-            2, max(0, ability_modifier(draft.stats.get("dexterity", 10)))
-        )
+        if self.version == "character-v2":
+            derived = derived_statistics(draft.class_id, draft.race_id, draft.stats)
+            sheet = species_sheet(draft.race_id, draft.species_choices, 1)
+            max_hp = derived["max_hp"]
+            armor_class = derived["armor_class"]
+        else:
+            max_hp = max(
+                1,
+                character_class.base_hp
+                + ability_modifier(draft.stats.get("constitution", 10))
+                + race.hp_bonus,
+            )
+            armor_class = character_class.base_armor_class + min(
+                2, max(0, ability_modifier(draft.stats.get("dexterity", 10)))
+            )
+            derived = {
+                "initiative": ability_modifier(draft.stats.get("dexterity", 10)),
+                "proficiency_bonus": 2,
+            }
+            sheet = {"size": "medium", "speed": 30, "darkvision": 0}
+        sheet_speed = sheet["speed"]
+        sheet_darkvision = sheet["darkvision"]
+        if not isinstance(sheet_speed, int) or not isinstance(sheet_darkvision, int):
+            raise ContentConfigurationError("Species sheet contains invalid derived values.")
         return Character(
             id=character_id,
             draft_id=draft.id,
@@ -207,6 +230,14 @@ class SimpleRuleset:
             max_hp=max_hp,
             current_hp=max_hp,
             armor_class=armor_class,
+            account_id=draft.account_id,
+            temporary_hp=0,
+            initiative=derived["initiative"],
+            proficiency_bonus=derived["proficiency_bonus"],
+            size=str(sheet["size"]),
+            speed=sheet_speed,
+            darkvision=sheet_darkvision,
+            species_choices=dict(draft.species_choices),
         )
 
     def card(self, card_id: str) -> AbilityCard:
@@ -471,5 +502,49 @@ DEFAULT_RULESET = SimpleRuleset(
         ClassDefinition("fighter", "Fighter", "Martial specialist.", 10, 14),
         ClassDefinition("wizard", "Wizard", "Scholar of arcane magic.", 6, 10),
         ClassDefinition("rogue", "Rogue", "Skilled and opportunistic.", 8, 12),
+    ),
+)
+
+
+def _placeholder_card(index: int) -> AbilityCard:
+    return AbilityCard(
+        id=f"v2_placeholder_{index:02d}",
+        name=f"Заготовка способности {index}",
+        description="Описание способности будет добавлено позже.",
+        kind="placeholder",
+        properties=("Плейсхолдер",),
+        class_ids=frozenset(definition.id for definition in CLASS_DEFINITIONS),
+    )
+
+
+CHARACTER_V2_RULESET = SimpleRuleset(
+    version="character-v2",
+    rounds_required=4,
+    cards_per_round=3,
+    allow_duplicates=False,
+    max_rerolls=0,
+    stat_allocation=tuple(standard_stats("fighter").items()),
+    cards=tuple(_placeholder_card(index) for index in range(1, 13)),
+    races=tuple(
+        RaceDefinition(
+            id=species.id,
+            name=species.name,
+            description=species.description,
+            hp_bonus=0,
+        )
+        for species in SPECIES
+    ),
+    classes=tuple(
+        ClassDefinition(
+            id=definition.id,
+            name=definition.name,
+            description=(
+                f"{definition.theme}. Основная характеристика: {definition.primary_stat}. "
+                f"Сложность: {definition.difficulty}."
+            ),
+            base_hp=definition.hit_die,
+            base_armor_class=10,
+        )
+        for definition in CLASS_DEFINITIONS
     ),
 )

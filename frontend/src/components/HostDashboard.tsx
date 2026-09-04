@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 
+/* eslint-disable no-constant-binary-expression */
+
 import { api, type Diagnostics, type GameSession, type Snapshot } from "../api";
 import { HostCombatPanel } from "./CombatPanel";
+import { EncountersPanel } from "./EncountersPanel";
 import { ErrorNotice } from "./ErrorNotice";
 import { DicePanel } from "./DicePanel";
 import { GmNotesPanel } from "./GmNotesPanel";
@@ -140,14 +143,21 @@ export function HostDashboard({
         {section === "dice" && (
           <DicePanel snapshot={snapshot} refresh={refresh} />
         )}
-        {section === "combat" &&
+        {section === "combat" && snapshot.session && (
+          <EncountersPanel snapshot={snapshot} refresh={refresh} gm />
+        )}
+        {false &&
+          section === "combat" &&
           snapshot.session &&
-          ["ACTIVE", "PAUSED"].includes(snapshot.session.status) && (
-            <HostCombatPanel snapshot={snapshot} refresh={refresh} />
-          )}
-        {section === "combat" &&
+          ["ACTIVE", "PAUSED"].includes(
+            snapshot.session?.status ?? "COMPLETED",
+          ) && <HostCombatPanel snapshot={snapshot} refresh={refresh} />}
+        {false &&
+          section === "combat" &&
           (!snapshot.session ||
-            !["ACTIVE", "PAUSED"].includes(snapshot.session.status)) && (
+            !["ACTIVE", "PAUSED"].includes(
+              snapshot.session?.status ?? "COMPLETED",
+            )) && (
             <section className="card stack span-2">
               <h2>Бой пока недоступен</h2>
               <p className="muted">
