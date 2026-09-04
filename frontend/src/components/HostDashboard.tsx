@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 
+/* eslint-disable no-constant-binary-expression */
+
 import { api, type Diagnostics, type GameSession, type Snapshot } from "../api";
 import { HostCombatPanel } from "./CombatPanel";
+import { EncountersPanel } from "./EncountersPanel";
 import { ErrorNotice } from "./ErrorNotice";
+import { DicePanel } from "./DicePanel";
+import { GmNotesPanel } from "./GmNotesPanel";
+import { HostCharactersPanel } from "./HostCharactersPanel";
 
 interface PairingInfo {
   id: string;
@@ -20,8 +26,21 @@ export function HostDashboard({
   refresh: () => void;
 }) {
   const [pairing, setPairing] = useState<PairingInfo>();
+  const [wifi, setWifi] = useState<{
+    ssid: string;
+    security: "WPA" | "WEP" | "nopass";
+    password: string;
+  }>({
+    ssid: "",
+    security: "WPA",
+    password: "",
+  });
+  const [wifiQr, setWifiQr] = useState<string>();
   const [invitation, setInvitation] = useState<string>();
   const [diagnostics, setDiagnostics] = useState<Diagnostics>();
+  const [section, setSection] = useState<
+    "lobby" | "characters" | "combat" | "dice" | "notes" | "settings"
+  >("lobby");
   const [pending, setPending] = useState("");
   const [error, setError] = useState<unknown>();
   const deviceId = snapshot.current_device_id;
@@ -50,6 +69,14 @@ export function HostDashboard({
     await action("pairing", async () => {
       const response = await api.createPairing(snapshot.room.id, deviceId);
       setPairing(response.data);
+    });
+  }
+
+  async function createWifiQr() {
+    if (!wifi.ssid.trim()) return;
+    await action("wifi", async () => {
+      const response = await api.createWifiQr(snapshot.room.id, wifi);
+      setWifiQr(response.qr_data_url);
     });
   }
 
@@ -99,7 +126,7 @@ export function HostDashboard({
   })();
 
   return (
-    <main className="dashboard">
+    <main className="dashboard host-dashboard">
       <header className="topbar">
         <div>
           <p className="eyebrow">ПАНЕЛЬ ВЕДУЩЕГО</p>
@@ -109,186 +136,321 @@ export function HostDashboard({
           {snapshot.room.code}
         </div>
       </header>
+      <nav className="dashboard-nav" aria-label="Разделы ведущего">
+        {(
+          [
+            ["lobby", "Лобби"],
+            ["characters", "Персонажи"],
+            ["combat", "Бой"],
+            ["dice", "Кубики"],
+            ["notes", "Заметки"],
+            ["settings", "Система"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            className={section === value ? "active" : ""}
+            onClick={() => setSection(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
       <ErrorNotice error={error} />
       <div className="dashboard-grid">
-        {snapshot.session &&
-          ["ACTIVE", "PAUSED"].includes(snapshot.session.status) && (
-            <HostCombatPanel snapshot={snapshot} refresh={refresh} />
+        {section === "dice" && (
+          <DicePanel snapshot={snapshot} refresh={refresh} />
+        )}
+        {section === "combat" && snapshot.session && (
+          <EncountersPanel snapshot={snapshot} refresh={refresh} gm />
+        )}
+        {false &&
+          section === "combat" &&
+          snapshot.session &&
+          ["ACTIVE", "PAUSED"].includes(
+            snapshot.session?.status ?? "COMPLETED",
+          ) && <HostCombatPanel snapshot={snapshot} refresh={refresh} />}
+        {false &&
+          section === "combat" &&
+          (!snapshot.session ||
+            !["ACTIVE", "PAUSED"].includes(
+              snapshot.session?.status ?? "COMPLETED",
+            )) && (
+            <section className="card stack span-2">
+              <h2>Бой пока недоступен</h2>
+              <p className="muted">
+                Откройте сессию в лобби и переведите её в активное состояние.
+              </p>
+            </section>
           )}
-        <section className="card stack">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">ПОДКЛЮЧЕНИЕ</p>
-              <h2>Пригласить игроков</h2>
-            </div>
-            <button
-              className="primary"
-              onClick={createPairing}
-              disabled={pending === "pairing"}
-            >
-              {pending === "pairing" ? "Создаём…" : "Новый QR"}
-            </button>
-          </div>
-          {pairing ? (
-            <div className="pairing">
-              <img src={pairing.qr_data_url} alt="QR-код подключения" />
+        {section === "lobby" && (
+          <section className="card stack">
+            <div className="section-heading">
               <div>
-                <span>Короткий код</span>
-                <strong>{pairing.short_code}</strong>
-                <small>
-                  Действует до{" "}
-                  {new Date(pairing.expires_at).toLocaleTimeString()}
-                </small>
-                <button
-                  className="danger-text"
-                  onClick={() =>
-                    action("pairing", () =>
-                      api.revokePairing(snapshot.room.id, pairing.id, deviceId),
-                    )
-                  }
-                >
-                  Отозвать
-                </button>
+                <p className="eyebrow">ПОДКЛЮЧЕНИЕ</p>
+                <h2>Пригласить игроков</h2>
               </div>
-            </div>
-          ) : (
-            <p className="muted">Создайте одноразовый QR или короткий код.</p>
-          )}
-          {snapshot.room.access_mode === "invitation" && (
-            <div className="stack compact">
-              <button className="secondary" onClick={createInvitation}>
-                Создать пропуск в комнату
-              </button>
-              {invitation && <code className="secret">{invitation}</code>}
-            </div>
-          )}
-        </section>
-
-        <section className="card stack">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">СЕССИЯ</p>
-              <h2>{snapshot.session?.status ?? "Нет активной"}</h2>
-            </div>
-            {sessionAction && (
               <button
                 className="primary"
-                onClick={() => action("session", sessionAction.run)}
-                disabled={pending === "session"}
+                onClick={createPairing}
+                disabled={pending === "pairing"}
               >
-                {sessionAction.label}
+                {pending === "pairing" ? "Создаём…" : "Новый QR"}
               </button>
-            )}
-          </div>
-          {snapshot.session &&
-            ["ACTIVE", "PAUSED"].includes(snapshot.session.status) && (
-              <button
-                className="danger"
-                onClick={() => transition("COMPLETED")}
-              >
-                Завершить сессию
-              </button>
-            )}
-        </section>
-
-        <section className="card stack span-2">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">ЛОББИ</p>
-              <h2>Участники · {snapshot.players?.length ?? 0}</h2>
             </div>
-          </div>
-          <div className="participant-list">
-            {snapshot.players?.map((player) => (
-              <article key={player.id} className="participant">
-                <div className="avatar">
-                  {player.display_name.slice(0, 1).toUpperCase()}
-                </div>
+            {pairing ? (
+              <div className="pairing pairing-steps">
+                {wifiQr && (
+                  <div>
+                    <span>1. Подключитесь к Wi‑Fi</span>
+                    <img src={wifiQr} alt="QR-код Wi-Fi" />
+                    <small>
+                      Телефон может запросить подтверждение подключения.
+                    </small>
+                  </div>
+                )}
                 <div>
-                  <strong>{player.display_name}</strong>
-                  <small>
-                    {player.selected_character_id
-                      ? "Персонаж выбран"
-                      : "Выбирает персонажа"}
-                  </small>
+                  <span>2. Откройте лобби</span>
+                  <img
+                    src={pairing.qr_data_url}
+                    alt="QR-код подключения к лобби"
+                  />
+                  <div>
+                    <span>Короткий код</span>
+                    <strong>{pairing.short_code}</strong>
+                    <small>
+                      Действует до{" "}
+                      {new Date(pairing.expires_at).toLocaleTimeString()}
+                    </small>
+                    <button
+                      className="danger-text"
+                      onClick={() =>
+                        action("pairing", () =>
+                          api.revokePairing(
+                            snapshot.room.id,
+                            pairing.id,
+                            deviceId,
+                          ),
+                        )
+                      }
+                    >
+                      Отозвать
+                    </button>
+                  </div>
                 </div>
-              </article>
-            ))}
-            {!snapshot.players?.length && (
-              <p className="muted">Игроки ещё не подключились.</p>
+              </div>
+            ) : (
+              <p className="muted">Создайте одноразовый QR или короткий код.</p>
             )}
-          </div>
-          <h3>Устройства</h3>
-          <div className="device-list">
-            {snapshot.devices?.map((device) => (
-              <div className="device-row" key={device.id}>
-                <span>
-                  <strong>{device.label}</strong>
-                  <small>
-                    {device.connection_state ?? "offline"} ·{" "}
-                    {new Date(device.last_seen_at).toLocaleTimeString()}
-                  </small>
-                </span>
-                {device.role !== "gm" && device.status === "active" && (
+            <details className="wifi-settings">
+              <summary>Настроить QR Wi‑Fi (необязательно)</summary>
+              <div className="inline-form">
+                <input
+                  aria-label="Название Wi-Fi"
+                  placeholder="Название Wi‑Fi"
+                  value={wifi.ssid}
+                  onChange={(event) =>
+                    setWifi({ ...wifi, ssid: event.target.value })
+                  }
+                />
+                <select
+                  aria-label="Защита Wi-Fi"
+                  value={wifi.security}
+                  onChange={(event) =>
+                    setWifi({
+                      ...wifi,
+                      security: event.target.value as "WPA" | "WEP" | "nopass",
+                    })
+                  }
+                >
+                  <option value="WPA">WPA/WPA2</option>
+                  <option value="WEP">WEP</option>
+                  <option value="nopass">Без пароля</option>
+                </select>
+                {wifi.security !== "nopass" && (
+                  <input
+                    aria-label="Пароль Wi-Fi"
+                    type="password"
+                    placeholder="Пароль Wi‑Fi"
+                    value={wifi.password}
+                    onChange={(event) =>
+                      setWifi({ ...wifi, password: event.target.value })
+                    }
+                  />
+                )}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={createWifiQr}
+                  disabled={!wifi.ssid.trim() || pending === "wifi"}
+                >
+                  Создать QR Wi‑Fi
+                </button>
+              </div>
+            </details>
+            {snapshot.room.access_mode === "invitation" && (
+              <div className="stack compact">
+                <button className="secondary" onClick={createInvitation}>
+                  Создать пропуск в комнату
+                </button>
+                {invitation && <code className="secret">{invitation}</code>}
+              </div>
+            )}
+          </section>
+        )}
+
+        {section === "lobby" && (
+          <section className="card stack">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">СЕССИЯ</p>
+                <h2>{snapshot.session?.status ?? "Нет активной"}</h2>
+              </div>
+              {sessionAction && (
+                <button
+                  className="primary"
+                  onClick={() => action("session", sessionAction.run)}
+                  disabled={pending === "session"}
+                >
+                  {sessionAction.label}
+                </button>
+              )}
+            </div>
+            {snapshot.session &&
+              ["ACTIVE", "PAUSED"].includes(snapshot.session.status) && (
+                <button
+                  className="danger"
+                  onClick={() => transition("COMPLETED")}
+                >
+                  Завершить сессию
+                </button>
+              )}
+          </section>
+        )}
+
+        {section === "lobby" && (
+          <section className="card stack span-2">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">ЛОББИ</p>
+                <h2>Участники · {snapshot.players?.length ?? 0}</h2>
+              </div>
+            </div>
+            <div className="participant-list">
+              {snapshot.players?.map((player) => (
+                <article key={player.id} className="participant">
+                  <div className="avatar">
+                    {player.display_name.slice(0, 1).toUpperCase()}
+                  </div>
+                  <div>
+                    <strong>{player.display_name}</strong>
+                    <small>
+                      {player.selected_character_id
+                        ? "Персонаж выбран"
+                        : "Выбирает персонажа"}
+                    </small>
+                  </div>
                   <button
                     className="danger-text"
                     onClick={() =>
-                      action("revoke", () =>
-                        api.revokeDevice(snapshot.room.id, device.id, deviceId),
+                      action("kick", () =>
+                        api.kickPlayer(snapshot.room.id, player.id, deviceId),
                       )
                     }
+                    disabled={pending === "kick"}
                   >
-                    Отключить
+                    Выгнать
                   </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
+                </article>
+              ))}
+              {!snapshot.players?.length && (
+                <p className="muted">Игроки ещё не подключились.</p>
+              )}
+            </div>
+            <h3>Устройства</h3>
+            <div className="device-list">
+              {snapshot.devices?.map((device) => (
+                <div className="device-row" key={device.id}>
+                  <span>
+                    <strong>{device.label}</strong>
+                    <small>
+                      {device.connection_state ?? "offline"} ·{" "}
+                      {new Date(device.last_seen_at).toLocaleTimeString()}
+                    </small>
+                  </span>
+                  {device.role !== "gm" && device.status === "active" && (
+                    <button
+                      className="danger-text"
+                      onClick={() =>
+                        action("revoke", () =>
+                          api.revokeDevice(
+                            snapshot.room.id,
+                            device.id,
+                            deviceId,
+                          ),
+                        )
+                      }
+                    >
+                      Отключить
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
-        <section className="card stack span-2">
-          <p className="eyebrow">ДИАГНОСТИКА</p>
-          <h2>Локальная сеть</h2>
-          {diagnostics ? (
-            <dl className="diagnostics">
-              <div>
-                <dt>Адреса</dt>
-                <dd>
-                  {diagnostics.addresses
-                    .map((address) => `${address}:${diagnostics.port}`)
-                    .join(", ")}
-                </dd>
-              </div>
-              <div>
-                <dt>WebSocket</dt>
-                <dd>{diagnostics.websocket_connections}</dd>
-              </div>
-              <div>
-                <dt>Курсор событий</dt>
-                <dd>{diagnostics.event_cursor}</dd>
-              </div>
-              <div>
-                <dt>SQLite</dt>
-                <dd>{diagnostics.sqlite_journal_mode.toUpperCase()}</dd>
-              </div>
-              <div>
-                <dt>Свободно</dt>
-                <dd>
-                  {Math.round(diagnostics.free_disk_bytes / 1024 / 1024)} МБ
-                </dd>
-              </div>
-            </dl>
-          ) : (
-            <p className="muted">Получаем состояние…</p>
-          )}
-          <a
-            className="button secondary"
-            href="/api/v2/host/diagnostics/export"
-            download
-          >
-            Скачать безопасный отчёт
-          </a>
-        </section>
+        {section === "characters" && (
+          <HostCharactersPanel snapshot={snapshot} refresh={refresh} />
+        )}
+
+        {section === "notes" && <GmNotesPanel snapshot={snapshot} />}
+
+        {section === "settings" && (
+          <section className="card stack span-2">
+            <p className="eyebrow">ДИАГНОСТИКА</p>
+            <h2>Локальная сеть</h2>
+            {diagnostics ? (
+              <dl className="diagnostics">
+                <div>
+                  <dt>Адреса</dt>
+                  <dd>
+                    {diagnostics.addresses
+                      .map((address) => `${address}:${diagnostics.port}`)
+                      .join(", ")}
+                  </dd>
+                </div>
+                <div>
+                  <dt>WebSocket</dt>
+                  <dd>{diagnostics.websocket_connections}</dd>
+                </div>
+                <div>
+                  <dt>Курсор событий</dt>
+                  <dd>{diagnostics.event_cursor}</dd>
+                </div>
+                <div>
+                  <dt>SQLite</dt>
+                  <dd>{diagnostics.sqlite_journal_mode.toUpperCase()}</dd>
+                </div>
+                <div>
+                  <dt>Свободно</dt>
+                  <dd>
+                    {Math.round(diagnostics.free_disk_bytes / 1024 / 1024)} МБ
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="muted">Получаем состояние…</p>
+            )}
+            <a
+              className="button secondary"
+              href="/api/v2/host/diagnostics/export"
+              download
+            >
+              Скачать безопасный отчёт
+            </a>
+          </section>
+        )}
       </div>
     </main>
   );

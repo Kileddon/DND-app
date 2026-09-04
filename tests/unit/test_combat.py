@@ -14,6 +14,7 @@ from tabletop_companion.domain.combat import (
     HealthActionType,
     InitiativeEntry,
     RollMode,
+    RollSelection,
     RollVisibility,
 )
 from tabletop_companion.domain.errors import DomainValidationError, StateConflictError
@@ -124,6 +125,21 @@ def test_dice_expression(text: str, normalized: str, values: tuple[int, ...], to
 def test_invalid_dice_expression_is_rejected() -> None:
     with pytest.raises(DomainValidationError):
         DiceExpression.parse("2d1")
+
+
+def test_advantage_and_disadvantage_select_expected_attempt() -> None:
+    expression = DiceExpression.parse("1d20+2")
+    values = iter((4, 16))
+    attempts, totals, selected = expression.roll_selected(
+        RollSelection.ADVANTAGE, lambda _low, _high: next(values)
+    )
+    assert (attempts, totals, selected) == (((4,), (16,)), (6, 18), 1)
+
+    values = iter((4, 16))
+    _, totals, selected = expression.roll_selected(
+        RollSelection.DISADVANTAGE, lambda _low, _high: next(values)
+    )
+    assert totals[selected] == 6
 
 
 def test_delayed_roll_keeps_original_value_when_edited_and_can_be_revealed() -> None:

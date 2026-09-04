@@ -1,14 +1,21 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   api,
   type Character,
   type CharacterDraft,
+  type CharacterOptions,
   type CharacterSummary,
   type Snapshot,
 } from "../api";
-import { PlayerCombatPanel } from "./CombatPanel";
+import { CharacterCreationWizard } from "./CharacterCreationWizard";
+import { CharacterSheet } from "./CharacterSheet";
+import { DicePanel } from "./DicePanel";
 import { ErrorNotice } from "./ErrorNotice";
+import { PlayerNotesPanel } from "./PlayerNotesPanel";
+import { abilityModifierValue } from "../viewRules";
+
+type PlayerSection = "lobby" | "character" | "dice" | "notes";
 
 export function PlayerDashboard({
   snapshot,
@@ -18,13 +25,29 @@ export function PlayerDashboard({
   refresh: () => void;
 }) {
   const player = snapshot.player!;
+  const [section, setSection] = useState<PlayerSection>("lobby");
+  const [cabinetOpen, setCabinetOpen] = useState(false);
   const [draft, setDraft] = useState<CharacterDraft>();
   const [character, setCharacter] = useState<Character>();
-  const [name, setName] = useState("");
-  const [itemName, setItemName] = useState("");
-  const [pending, setPending] = useState("");
+  const [options, setOptions] = useState<CharacterOptions>();
+  const [creating, setCreating] = useState(
+    !player.selected_character_id && !(snapshot.characters?.length ?? 0),
+  );
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
+  const draftReady = Boolean(
+    draft &&
+    new Set(draft.chosen_cards.map((card) => card.id)).size >=
+      draft.required_rounds,
+  );
+  const previewCharacter =
+    draft && options && draftReady
+      ? makePreviewCharacter(draft, options, player.id)
+      : undefined;
 
+  useEffect(() => {
+    api.characterOptions().then(setOptions).catch(setError);
+  }, []);
   useEffect(() => {
     if (player.selected_character_id) {
       api
@@ -34,85 +57,88 @@ export function PlayerDashboard({
     }
   }, [player.selected_character_id, snapshot.cursor]);
 
-  async function action<T>(
-    name: string,
-    operation: () => Promise<T>,
-  ): Promise<T | undefined> {
-    setPending(name);
+  async function beginCreating() {
+    setPending(true);
     setError(undefined);
     try {
-      return await operation();
+      if (player.selected_character_id) {
+        await api.clearCharacterSelection(snapshot.current_device_id, player);
+      }
+      setCharacter(undefined);
+      setDraft(undefined);
+      setCreating(true);
+      refresh();
     } catch (reason) {
       setError(reason);
-      if (reason instanceof Error && reason.message.includes("version"))
-        refresh();
-      return undefined;
     } finally {
-      setPending("");
+      setPending(false);
     }
-  }
-
-  async function startDraft(event: FormEvent) {
-    event.preventDefault();
-    const response = await action("draft", () =>
-      api.startDraft(snapshot.current_device_id, name),
-    );
-    if (response) setDraft(response.data);
   }
 
   async function choose(cardId: string) {
     if (!draft) return;
-    const response = await action("choice", () =>
-      api.chooseCard(snapshot.current_device_id, draft, cardId),
-    );
-    if (response) setDraft(response.data);
+    setPending(true);
+    setError(undefined);
+    try {
+      const response = await api.chooseCard(
+        snapshot.current_device_id,
+        draft,
+        cardId,
+      );
+      setDraft(response.data);
+    } catch (reason) {
+      setError(reason);
+    } finally {
+      setPending(false);
+    }
   }
 
   async function confirm() {
     if (!draft) return;
-    const response = await action("confirm", () =>
-      api.confirmDraft(snapshot.current_device_id, draft),
-    );
-    if (!response) return;
-    const selected = await action("select", () =>
-      api.selectCharacter(snapshot.current_device_id, player, response.data.id),
-    );
-    if (selected) {
+    setPending(true);
+    setError(undefined);
+    try {
+      const response = await api.confirmDraft(
+        snapshot.current_device_id,
+        draft,
+      );
+      await api.selectCharacter(
+        snapshot.current_device_id,
+        player,
+        response.data.id,
+      );
       setCharacter(response.data);
       setDraft(undefined);
+      setCreating(false);
       refresh();
+    } catch (reason) {
+      setError(reason);
+    } finally {
+      setPending(false);
     }
   }
 
   async function select(summary: CharacterSummary) {
-    const response = await action("select", () =>
-      api.selectCharacter(snapshot.current_device_id, player, summary.id),
-    );
-    if (response) refresh();
-  }
-
-  async function addItem(event: FormEvent) {
-    event.preventDefault();
-    if (!character) return;
-    const response = await action("inventory", () =>
-      api.addItem(snapshot.current_device_id, player.id, character, itemName),
-    );
-    if (response) {
-      setCharacter(response.data);
-      setItemName("");
+    try {
+      await api.selectCharacter(snapshot.current_device_id, player, summary.id);
+      setCreating(false);
+      refresh();
+    } catch (reason) {
+      setError(reason);
     }
   }
 
-  async function discard(itemId: string) {
-    if (!character) return;
-    const item = character.inventory.find(
-      (candidate) => candidate.id === itemId,
-    );
-    if (!item) return;
-    const response = await action("inventory", () =>
-      api.discardItem(snapshot.current_device_id, player.id, character, item),
-    );
-    if (response) setCharacter(response.data);
+  async function restore(summary: CharacterSummary) {
+    try {
+      await api.changeCharacterLifecycle(
+        snapshot.current_device_id,
+        summary,
+        "restore",
+      );
+      refresh();
+    } catch (reason) {
+      setError(reason);
+    }
   }
 
   return (
@@ -125,139 +151,224 @@ export function PlayerDashboard({
         <div className="session-pill">
           {snapshot.session?.status ?? "Ожидаем лобби"}
         </div>
+        <button
+          className="secondary cabinet-toggle"
+          onClick={() => setCabinetOpen(true)}
+        >
+          Личный кабинет
+        </button>
       </header>
+      <nav className="dashboard-nav" aria-label="Разделы игрока">
+        {(
+          [
+            ["lobby", "Лобби"],
+            ["character", "Персонаж"],
+            ["dice", "Кубики"],
+            ["notes", "Заметки"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            className={section === value ? "active" : ""}
+            onClick={() => setSection(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
       <ErrorNotice error={error} />
-
-      <PlayerCombatPanel snapshot={snapshot} refresh={refresh} />
-
-      {!player.selected_character_id && !draft && (
+      {section === "lobby" && (
         <section className="card stack">
-          <p className="eyebrow">ПЕРСОНАЖ</p>
-          <h2>
-            {snapshot.characters?.length
-              ? "Выберите персонажа"
-              : "Создайте героя"}
-          </h2>
-          {snapshot.characters?.map((summary) => (
-            <button
-              className="character-choice"
-              key={summary.id}
-              onClick={() => select(summary)}
-            >
-              <strong>{summary.name}</strong>
-              <span>Открыть</span>
-            </button>
-          ))}
-          <form onSubmit={startDraft} className="stack compact">
-            <label>
-              Имя нового персонажа
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-              />
-            </label>
-            <button className="primary" disabled={pending === "draft"}>
-              {pending === "draft" ? "Готовим…" : "Начать простой конструктор"}
-            </button>
-          </form>
+          <p className="eyebrow">ЛОББИ</p>
+          <h2>{snapshot.room.name}</h2>
+          <p>
+            Вы вошли как <strong>{player.display_name}</strong>.
+          </p>
+          <p className="muted">
+            Статус сессии:{" "}
+            {snapshot.session?.status ?? "ведущий ещё не открыл сессию"}
+          </p>
         </section>
       )}
-
-      {draft && (
-        <section className="card stack">
-          <div className="round-counter">
-            Раунд {Math.min(draft.completed_rounds + 1, draft.required_rounds)}{" "}
-            из {draft.required_rounds}
-          </div>
-          <h2>Выберите способность для {draft.name}</h2>
-          <div className="ability-grid">
-            {draft.offered_cards.map((card) => (
+      {section === "dice" && (
+        <DicePanel snapshot={snapshot} refresh={refresh} />
+      )}
+      {section === "notes" && <PlayerNotesPanel snapshot={snapshot} />}
+      {cabinetOpen && !draft && !creating && (
+        <section
+          className="card stack span-2 cabinet-panel"
+          role="dialog"
+          aria-label="Личный кабинет"
+        >
+          <div className="section-heading">
+            <h2>Мои персонажи</h2>
+            <div className="inline-actions">
               <button
-                className="ability-card"
-                key={card.id}
-                disabled={pending === "choice"}
-                onClick={() => choose(card.id)}
+                className="primary"
+                disabled={pending}
+                onClick={() => void beginCreating()}
               >
-                <span className="ability-kind">{card.kind}</span>
-                <strong>{card.name}</strong>
-                <span>{card.description}</span>
+                Создать нового
+              </button>
+              <button onClick={() => setCabinetOpen(false)}>Закрыть</button>
+            </div>
+          </div>
+          <div className="option-list">
+            {snapshot.characters?.map((summary) => (
+              <button
+                className={
+                  summary.selected
+                    ? "character-choice selected"
+                    : "character-choice"
+                }
+                onClick={() => select(summary)}
+                key={summary.id}
+              >
+                <strong>{summary.name}</strong>
+                <span>
+                  {summary.current_hp}/{summary.max_hp} HP · КБ{" "}
+                  {summary.armor_class}
+                </span>
               </button>
             ))}
           </div>
-          {draft.ready_to_confirm && (
-            <button
-              className="primary"
-              onClick={confirm}
-              disabled={pending === "confirm"}
-            >
-              {pending === "confirm"
-                ? "Подтверждаем…"
-                : "Подтвердить персонажа"}
-            </button>
+          {!!snapshot.archived_characters?.length && (
+            <details>
+              <summary>Архив персонажей</summary>
+              {snapshot.archived_characters.map((summary) => (
+                <div className="inventory-row" key={summary.id}>
+                  <strong>{summary.name}</strong>
+                  <button onClick={() => restore(summary)}>Восстановить</button>
+                </div>
+              ))}
+            </details>
           )}
         </section>
       )}
-
-      {character && (
-        <div className="player-grid">
-          <section className="card stack">
-            <p className="eyebrow">КАРТОЧКА ПЕРСОНАЖА</p>
-            <h2>{character.name}</h2>
-            <dl className="stats">
-              {Object.entries(character.stats).map(([key, value]) => (
-                <div key={key}>
-                  <dt>{key}</dt>
-                  <dd>{value}</dd>
-                </div>
-              ))}
-            </dl>
-            <h3>Способности</h3>
-            <div className="abilities">
-              {character.abilities.map((ability) => (
-                <article key={ability.id}>
-                  <strong>{ability.name}</strong>
-                  <span>{ability.description}</span>
-                </article>
+      {cabinetOpen && creating && !draft && options && (
+        <CharacterCreationWizard
+          deviceId={snapshot.current_device_id}
+          options={options}
+          onCreated={setDraft}
+        />
+      )}
+      {cabinetOpen && draft && (
+        <section className="card stack">
+          <div className="round-counter">
+            Способность{" "}
+            {Math.min(draft.completed_rounds + 1, draft.required_rounds)} из{" "}
+            {draft.required_rounds}
+          </div>
+          {!draftReady && <h2>Выберите способность</h2>}
+          {draft.random_rolls?.length ? (
+            <div className="roll-attempts">
+              {draft.random_rolls.map((roll, index) => (
+                <span key={index}>
+                  [{roll.values.join(", ")}] → {roll.total}
+                </span>
               ))}
             </div>
-          </section>
-          <section className="card stack">
-            <p className="eyebrow">ИНВЕНТАРЬ</p>
-            <h2>Снаряжение</h2>
-            {character.inventory.map((item) => (
-              <div className="inventory-row" key={item.id}>
-                <span>
-                  <strong>{item.name}</strong>
-                  <small>Количество: {item.quantity}</small>
-                </span>
+          ) : null}
+          {!draftReady && (
+            <div className="ability-grid">
+              {draft.offered_cards.map((card) => (
                 <button
-                  className="danger-text"
-                  disabled={pending === "inventory" || item.locked}
-                  onClick={() => discard(item.id)}
+                  className="ability-card"
+                  disabled={pending}
+                  onClick={() => choose(card.id)}
+                  key={card.id}
                 >
-                  Удалить 1
+                  <span className="ability-kind">Плейсхолдер</span>
+                  <strong>{card.name}</strong>
+                  <span>{card.description}</span>
                 </button>
-              </div>
-            ))}
-            {!character.inventory.length && (
-              <p className="muted">Инвентарь пуст.</p>
-            )}
-            <form onSubmit={addItem} className="inline-form">
-              <input
-                aria-label="Название предмета"
-                placeholder="Новый предмет"
-                value={itemName}
-                onChange={(event) => setItemName(event.target.value)}
-                required
-              />
-              <button className="secondary" disabled={pending === "inventory"}>
-                Добавить
-              </button>
-            </form>
-          </section>
-        </div>
+              ))}
+            </div>
+          )}
+          {previewCharacter && options && (
+            <CharacterSheet
+              snapshot={snapshot}
+              initial={previewCharacter}
+              options={options}
+              onRefresh={() => undefined}
+              preview
+              onConfirm={() => void confirm()}
+            />
+          )}
+        </section>
       )}
+      {section === "character" &&
+        player.selected_character_id === character?.id &&
+        options &&
+        !creating &&
+        !draft && (
+          <CharacterSheet
+            snapshot={snapshot}
+            initial={character}
+            options={options}
+            onRefresh={refresh}
+            onArchived={() => {
+              setCharacter(undefined);
+              setCabinetOpen(true);
+            }}
+          />
+        )}
+      {section === "character" &&
+        !player.selected_character_id &&
+        !creating &&
+        !draft && (
+          <section className="card stack">
+            <h2>Персонаж не выбран</h2>
+            <button className="primary" onClick={() => setCabinetOpen(true)}>
+              Открыть личный кабинет
+            </button>
+          </section>
+        )}
     </main>
   );
+}
+
+function makePreviewCharacter(
+  draft: CharacterDraft,
+  options: CharacterOptions,
+  ownerId: string,
+): Character {
+  const stats = draft.stats ?? {};
+  const species = options.species?.find((item) => item.id === draft.race_id);
+  const characterClass = options.class_details?.find(
+    (item) => item.id === draft.class_id,
+  );
+  const constitutionValue = abilityModifierValue(
+    Number(stats.constitution ?? 10),
+  );
+  const initiative = abilityModifierValue(Number(stats.dexterity ?? 10));
+  const maxHp = Math.max(
+    1,
+    (characterClass?.hit_die ?? 8) +
+      constitutionValue +
+      (draft.race_id === "dwarf" ? 1 : 0),
+  );
+  return {
+    id: `preview-${draft.id}`,
+    name: draft.name,
+    race_id: draft.race_id,
+    class_id: draft.class_id,
+    max_hp: maxHp,
+    current_hp: maxHp,
+    temporary_hp: 0,
+    armor_class: 10 + initiative,
+    initiative,
+    owner_id: ownerId,
+    stats,
+    abilities: draft.chosen_cards,
+    inventory: [],
+    version: draft.version,
+    level: 1,
+    experience: 0,
+    size: draft.species_choices?.size ?? species?.sizes[0] ?? "medium",
+    speed: species?.speed ?? 30,
+    species_choices: draft.species_choices ?? {},
+    persistent_conditions: [],
+    total_weight: "0",
+  };
 }

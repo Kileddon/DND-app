@@ -147,6 +147,9 @@ def test_full_slice_survives_restart_and_preserves_event_log(database_url: str) 
             "equipped": False,
             "charges": 1,
             "created_at": restored["inventory"][0]["created_at"],
+            "unit_weight": "0.000",
+            "slot_compatibility": "none",
+            "equipment_slot": None,
         }
     ]
     assert len(restored["abilities"]) == 4

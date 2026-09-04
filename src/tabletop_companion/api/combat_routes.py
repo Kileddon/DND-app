@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from io import BytesIO
+from pathlib import Path
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Request, status
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 from tabletop_companion.api.local_routes import (
@@ -37,11 +40,18 @@ from tabletop_companion.application.combat_commands import (
 )
 from tabletop_companion.application.combat_service import CombatService
 from tabletop_companion.application.service import CommandOutcome
-from tabletop_companion.domain.combat import HealthActionType, RollMode, RollVisibility
+from tabletop_companion.domain.access import DeviceRole
+from tabletop_companion.domain.combat import (
+    HealthActionType,
+    RollMode,
+    RollSelection,
+    RollVisibility,
+)
+from tabletop_companion.domain.errors import DomainValidationError, PermissionDeniedError
 
 
 class CreateCombatRequest(CommandRequest):
-    pass
+    name: str = Field(default="Энкаунтер", min_length=1, max_length=120)
 
 
 class CombatVersionRequest(CommandRequest):
@@ -66,12 +76,16 @@ class MonsterTemplateRequest(CommandRequest):
     notes: str = Field(default="", max_length=2000)
     conditions: list[str] = Field(default_factory=list, max_length=50)
     actions: list[str] = Field(default_factory=list, max_length=50)
+    species: str = Field(default="", max_length=120)
+    abilities: str = Field(default="", max_length=4000)
+    damage: str = Field(default="", max_length=1000)
+    items: str = Field(default="", max_length=4000)
 
 
 class AddMonstersRequest(CombatVersionRequest):
     template_id: UUID
     initiative: int = Field(ge=-100, le=100)
-    count: int = Field(default=1, ge=1, le=50)
+    count: int = Field(default=1, ge=1, le=999)
     grouped: bool = False
 
 
@@ -109,6 +123,7 @@ class ConditionRequest(CommandRequest):
     description: str = Field(default="", max_length=1000)
     source_id: UUID | None = None
     visible_to_players: bool = True
+    persistent: bool = False
 
 
 class WoundDisplayRequest(CombatVersionRequest):
@@ -124,6 +139,7 @@ class RollRequest(CommandRequest):
     recipient_player_id: UUID | None = None
     physical_result: int | None = Field(default=None, ge=-100000, le=100000)
     action_event_id: UUID | None = None
+    selection: RollSelection = RollSelection.NEUTRAL
 
 
 class EditRollRequest(CommandRequest):
@@ -157,6 +173,42 @@ def _targets(values: list[HealthTargetRequest]) -> tuple[HealthTargetCommand, ..
 
 
 def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) -> None:
+    @app.post("/api/v2/rooms/{room_id}/media", tags=["media"])
+    async def upload_media(
+        room_id: UUID, request: Request, current: CurrentDevice
+    ) -> dict[str, str]:
+        if current.role is not DeviceRole.GM or current.room_id != str(room_id):
+            raise PermissionDeniedError("A GM device for this room is required.")
+        extension = Path(request.headers.get("X-Upload-Filename", "")).suffix.lower()
+        if extension not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+            raise DomainValidationError("Unsupported image format.", code="unsupported_image")
+        if request.headers.get("content-type") not in {
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif",
+        }:
+            raise DomainValidationError("Unsupported image content type.", code="unsupported_image")
+        content = await request.body()
+        if not content or len(content) > 8 * 1024 * 1024:
+            raise DomainValidationError(
+                "Image must be between 1 byte and 8 MB.", code="invalid_image"
+            )
+        try:
+            with Image.open(BytesIO(content)) as image:
+                image.verify()
+        except (SyntaxError, UnidentifiedImageError, OSError):
+            raise DomainValidationError(
+                "The uploaded file is not a valid image.", code="invalid_image"
+            ) from None
+        media_root: Path = app.state.settings.media_library
+        filename = f"{uuid4().hex}{extension}"
+        target = (media_root / filename).resolve()
+        if media_root.resolve() not in target.parents:
+            raise PermissionDeniedError("Invalid media path.")
+        target.write_bytes(content)
+        return {"url": f"/media/{filename}"}
+
     @app.get("/api/v2/me/combat", tags=["combat"])
     async def get_combat(current: CurrentDevice) -> dict[str, Any] | None:
         return service.snapshot(current)
@@ -181,6 +233,7 @@ def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) 
                 _client_time(payload.client_time),
                 str(room_id),
                 str(session_id),
+                payload.name,
             ),
             current,
         )
@@ -211,6 +264,10 @@ def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) 
                 payload.notes,
                 tuple(payload.conditions),
                 tuple(payload.actions),
+                payload.species,
+                payload.abilities,
+                payload.damage,
+                payload.items,
             ),
             current,
         )
@@ -431,6 +488,7 @@ def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) 
                 payload.description,
                 str(payload.source_id) if payload.source_id else None,
                 payload.visible_to_players,
+                payload.persistent,
             ),
             current,
         )
@@ -521,6 +579,7 @@ def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) 
                 str(payload.recipient_player_id) if payload.recipient_player_id else None,
                 payload.physical_result,
                 str(payload.action_event_id) if payload.action_event_id else None,
+                payload.selection,
             ),
             current,
         )

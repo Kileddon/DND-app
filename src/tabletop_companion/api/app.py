@@ -19,7 +19,7 @@ from tabletop_companion.application.combat_service import CombatService
 from tabletop_companion.application.local_service import LocalMultiplayerService
 from tabletop_companion.application.service import CompanionService
 from tabletop_companion.config import Settings
-from tabletop_companion.domain.rules import DEFAULT_RULESET, CardSampler
+from tabletop_companion.domain.rules import CHARACTER_V2_RULESET, DEFAULT_RULESET, CardSampler
 from tabletop_companion.infrastructure.database import (
     create_database_engine,
     create_session_factory,
@@ -56,15 +56,19 @@ def create_app(
     random_source = secrets.SystemRandom()
     service = CompanionService(
         uow_factory=uow_factory,
-        rulesets={DEFAULT_RULESET.version: DEFAULT_RULESET},
+        rulesets={
+            DEFAULT_RULESET.version: DEFAULT_RULESET,
+            CHARACTER_V2_RULESET.version: CHARACTER_V2_RULESET,
+        },
         sampler=sampler or random_source.sample,
     )
     digester = HmacSecretDigester(load_or_create_host_secret(resolved_settings.host_secret_path))
     local_service = LocalMultiplayerService(
         uow_factory=uow_factory,
-        ruleset=DEFAULT_RULESET,
+        ruleset=CHARACTER_V2_RULESET,
         digester=digester,
         password_hasher=Argon2RoomPasswordHasher(),
+        randint=random_source.randint,
     )
     combat_service = CombatService(uow_factory=uow_factory, randint=random_source.randint)
     hub = EventHub(
@@ -92,6 +96,8 @@ def create_app(
             "the compatibility /api/v1 surface is restricted to the host device."
         ),
     )
+    resolved_settings.media_library.mkdir(parents=True, exist_ok=True)
+    app.state.settings = resolved_settings
 
     @app.middleware("http")
     async def restrict_legacy_api(
@@ -130,6 +136,11 @@ def create_app(
     app.state.event_hub = hub
     app.state.settings = resolved_settings
     app.state.safe_errors = safe_errors
+    app.mount(
+        "/media",
+        StaticFiles(directory=resolved_settings.media_library),
+        name="media",
+    )
     if resolved_settings.frontend_dist.is_dir():
         app.mount(
             "/",

@@ -8,7 +8,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from tabletop_companion.api.runtime import SafeErrorLog
-from tabletop_companion.domain.errors import ApplicationError
+from tabletop_companion.domain.errors import (
+    ApplicationError,
+    AuthenticationError,
+    ContentConfigurationError,
+    DomainValidationError,
+    EntityNotFoundError,
+    IdempotencyConflictError,
+    InfrastructureError,
+    PermissionDeniedError,
+    RateLimitError,
+    StateConflictError,
+    UnsupportedEventVersionError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +42,34 @@ STATUS_BY_CODE = {
     "infrastructure_failure": 500,
 }
 
+STATUS_BY_ERROR_TYPE = {
+    AuthenticationError: 401,
+    PermissionDeniedError: 403,
+    EntityNotFoundError: 404,
+    StateConflictError: 409,
+    IdempotencyConflictError: 409,
+    RateLimitError: 429,
+    DomainValidationError: 422,
+    ContentConfigurationError: 422,
+    UnsupportedEventVersionError: 422,
+    InfrastructureError: 500,
+}
+
 
 def register_error_handlers(app: FastAPI, safe_errors: SafeErrorLog) -> None:
     async def handle_application_error(request: Request, error: Exception) -> JSONResponse:
         del request
         application_error = cast(ApplicationError, error)
-        status = STATUS_BY_CODE.get(application_error.code, 500)
+        status = STATUS_BY_CODE.get(application_error.code)
+        if status is None:
+            status = next(
+                (
+                    candidate
+                    for error_type, candidate in STATUS_BY_ERROR_TYPE.items()
+                    if isinstance(application_error, error_type)
+                ),
+                500,
+            )
         if status >= 500:
             safe_errors.record(application_error.code)
             logger.error(

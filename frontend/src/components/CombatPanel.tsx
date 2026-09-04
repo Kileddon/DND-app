@@ -2,6 +2,7 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { api, type CombatState, type Snapshot } from "../api";
 import { ErrorNotice } from "./ErrorNotice";
+import { participantLabel } from "../viewRules";
 
 function eventLabel(eventType: string): string {
   const labels: Record<string, string> = {
@@ -49,20 +50,30 @@ export function HostCombatPanel({
   const [amount, setAmount] = useState(1);
   const [monsterName, setMonsterName] = useState("Гоблин");
   const [monsterHp, setMonsterHp] = useState(10);
+  const [monsterArmor, setMonsterArmor] = useState(10);
   const [monsterCount, setMonsterCount] = useState(1);
+  const [monsterSpecies, setMonsterSpecies] = useState("");
+  const [monsterAbilities, setMonsterAbilities] = useState("");
+  const [monsterDamage] = useState("");
+  const [monsterNotes, setMonsterNotes] = useState("");
+  const [monsterItems] = useState("");
+  const [monsterImage, setMonsterImage] = useState("");
+  const [monsterFormOpen, setMonsterFormOpen] = useState(false);
   const [condition, setCondition] = useState("Сбит с ног");
-  const [expression, setExpression] = useState("1d20");
+  const [persistentCondition, setPersistentCondition] = useState(false);
   const [critical, setCritical] = useState(false);
   const [pending, setPending] = useState("");
   const [error, setError] = useState<unknown>();
+  const activeTarget = combat?.combatants.find(
+    (item) => item.id === selected[0],
+  );
 
   async function run<T>(name: string, operation: () => Promise<T>) {
     setPending(name);
     setError(undefined);
     try {
       const response = await operation();
-      const value = response as { data?: unknown };
-      if (value.data) refresh();
+      refresh();
       return response;
     } catch (reason) {
       setError(reason);
@@ -113,7 +124,17 @@ export function HostCombatPanel({
       const template = await api.createMonsterTemplate(
         snapshot.room.id,
         snapshot.current_device_id,
-        { name: monsterName, hp: monsterHp, armorClass: 12 },
+        {
+          name: monsterName,
+          hp: monsterHp,
+          armorClass: monsterArmor,
+          species: monsterSpecies,
+          abilities: monsterAbilities,
+          damage: monsterDamage,
+          notes: monsterNotes,
+          items: monsterItems,
+          imageUrl: monsterImage,
+        },
       );
       return api.addMonsters(
         combat,
@@ -124,9 +145,15 @@ export function HostCombatPanel({
     });
   }
 
-  async function health(
-    action: "damage" | "healing" | "temporary_hp" | "prevention",
-  ) {
+  async function uploadMonsterImage(file: File) {
+    await run("image", async () => {
+      const response = await api.uploadMedia(snapshot.room.id, file);
+      setMonsterImage(response.url);
+      return response;
+    });
+  }
+
+  async function health(action: "damage" | "healing" | "temporary_hp") {
     if (!combat || !selected.length) return;
     const response = await run("health", () =>
       api.applyHealth(
@@ -146,17 +173,15 @@ export function HostCombatPanel({
     const target = combat.combatants.find((item) => item.id === selected[0]);
     if (!target) return;
     const response = await run("condition", () =>
-      api.addCondition(combat, target, snapshot.current_device_id, condition),
+      api.addCondition(
+        combat,
+        target,
+        snapshot.current_device_id,
+        condition,
+        persistentCondition,
+      ),
     );
     if (response) refresh();
-  }
-
-  function toggleTarget(id: string) {
-    setSelected((current) =>
-      current.includes(id)
-        ? current.filter((candidate) => candidate !== id)
-        : [...current, id],
-    );
   }
 
   async function moveEntry(entryId: string, direction: -1 | 1) {
@@ -274,176 +299,257 @@ export function HostCombatPanel({
             Добавить выбранных персонажей
           </button>
           {combat.status === "PREPARATION" && (
-            <form
-              className="inline-form combat-monster-form"
-              onSubmit={addMonster}
-            >
-              <input
-                aria-label="Имя монстра"
-                value={monsterName}
-                onChange={(event) => setMonsterName(event.target.value)}
-                required
-              />
-              <input
-                aria-label="HP монстра"
-                type="number"
-                min="1"
-                value={monsterHp}
-                onChange={(event) => setMonsterHp(Number(event.target.value))}
-                required
-              />
-              <input
-                aria-label="Количество монстров"
-                type="number"
-                min="1"
-                max="20"
-                value={monsterCount}
-                onChange={(event) =>
-                  setMonsterCount(Number(event.target.value))
-                }
-                required
-              />
-              <button className="secondary">Добавить монстров</button>
-            </form>
+            <>
+              <button
+                className="secondary mobile-add-entity"
+                onClick={() => setMonsterFormOpen(true)}
+              >
+                Добавить сущность
+              </button>
+              <form
+                className={`combat-monster-form ${monsterFormOpen ? "open" : ""}`}
+                onSubmit={addMonster}
+              >
+                <div className="monster-form-head">
+                  <span>Изображение</span>
+                  <span>Имя</span>
+                  <span>HP</span>
+                  <span>КБ</span>
+                  <span>Кол-во</span>
+                  <span>Раса(ы)</span>
+                  <span>Способности</span>
+                  <span>Заметки</span>
+                  <span>Добавить</span>
+                </div>
+                <input
+                  aria-label="Имя монстра"
+                  maxLength={20}
+                  value={monsterName}
+                  onChange={(event) => setMonsterName(event.target.value)}
+                  required
+                />
+                <input
+                  aria-label="HP монстра"
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="999"
+                  value={monsterHp}
+                  onChange={(event) => setMonsterHp(Number(event.target.value))}
+                  required
+                />
+                <input
+                  aria-label="Класс брони монстра"
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  max="999"
+                  value={monsterArmor}
+                  onChange={(event) =>
+                    setMonsterArmor(Number(event.target.value))
+                  }
+                  required
+                />
+                <input
+                  aria-label="Количество монстров"
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="999"
+                  value={monsterCount}
+                  onChange={(event) =>
+                    setMonsterCount(Number(event.target.value))
+                  }
+                  required
+                />
+                <input
+                  aria-label="Раса(ы)"
+                  placeholder="Раса(ы)"
+                  value={monsterSpecies}
+                  onChange={(event) => setMonsterSpecies(event.target.value)}
+                />
+                <label className="upload-control">
+                  {monsterImage ? (
+                    <img src={monsterImage} alt="Миниатюра сущности" />
+                  ) : (
+                    "Файл"
+                  )}
+                  <input
+                    aria-label="Загрузить изображение с компьютера"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadMonsterImage(file);
+                    }}
+                  />
+                </label>
+                <input
+                  aria-label="Способности монстра"
+                  placeholder="Способности"
+                  value={monsterAbilities}
+                  onChange={(event) => setMonsterAbilities(event.target.value)}
+                />
+                <input
+                  aria-label="Заметки о монстре"
+                  placeholder="Заметки"
+                  value={monsterNotes}
+                  onChange={(event) => setMonsterNotes(event.target.value)}
+                />
+                <button className="secondary">Добавить</button>
+                {monsterFormOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setMonsterFormOpen(false)}
+                  >
+                    Отмена
+                  </button>
+                )}
+              </form>
+            </>
           )}
         </div>
       )}
 
       <div className="initiative-list">
-        {combat.entries.map((entry) => (
-          <article
-            className={
-              entry.id === combat.current_entry_id
-                ? "initiative active"
-                : "initiative"
-            }
-            key={entry.id}
-          >
-            <span className="initiative-score">{entry.initiative}</span>
-            <div>
-              <strong>{entry.name}</strong>
-              <small>
-                {entry.combatant_ids.length > 1
-                  ? `Группа: ${entry.combatant_ids.length}`
-                  : "Один участник"}
-              </small>
-            </div>
-            {combat.status !== "COMPLETED" && (
-              <div className="initiative-actions">
-                <button
-                  aria-label={`Поднять ${entry.name}`}
-                  onClick={() => moveEntry(entry.id, -1)}
-                >
-                  ↑
-                </button>
-                <button
-                  aria-label={`Опустить ${entry.name}`}
-                  onClick={() => moveEntry(entry.id, 1)}
-                >
-                  ↓
-                </button>
-                {combat.status === "PREPARATION" && (
-                  <button
-                    className="danger-text"
-                    onClick={() =>
-                      run("remove", () =>
-                        api.removeCombatEntry(
-                          combat,
-                          entry.id,
-                          snapshot.current_device_id,
-                        ),
-                      )
-                    }
-                  >
-                    Удалить
-                  </button>
+        {combat.entries.map((entry) =>
+          (() => {
+            const members = combat.combatants.filter((item) =>
+              entry.combatant_ids.includes(item.id),
+            );
+            const template = combat.monster_templates.find(
+              (item) => item.id === members[0]?.reference_id,
+            );
+            return (
+              <article
+                className={
+                  entry.id === combat.current_entry_id
+                    ? "initiative active"
+                    : "initiative"
+                }
+                key={entry.id}
+                onClick={() => setSelected(entry.combatant_ids)}
+              >
+                <span className="initiative-image">
+                  {template?.image_url ? (
+                    <img src={template.image_url} alt="" />
+                  ) : (
+                    ""
+                  )}
+                </span>
+                <div>
+                  <strong>{entry.name}</strong>
+                  {template?.species && <small>{template.species}</small>}
+                </div>
+                <small>{participantLabel(entry.combatant_ids.length)}</small>
+                <small>
+                  {members
+                    .flatMap((item) =>
+                      item.conditions.map((condition) => condition.name),
+                    )
+                    .join(", ") || "Без эффектов"}
+                </small>
+                {combat.status !== "COMPLETED" && (
+                  <div className="initiative-actions">
+                    <button
+                      aria-label={`Поднять ${entry.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void moveEntry(entry.id, -1);
+                      }}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      aria-label={`Опустить ${entry.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void moveEntry(entry.id, 1);
+                      }}
+                    >
+                      ↓
+                    </button>
+                    {combat.status === "PREPARATION" && (
+                      <button
+                        className="danger-text"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          return run("remove", () =>
+                            api.removeCombatEntry(
+                              combat,
+                              entry.id,
+                              snapshot.current_device_id,
+                            ),
+                          );
+                        }}
+                      >
+                        Удалить
+                      </button>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
-          </article>
-        ))}
+              </article>
+            );
+          })(),
+        )}
       </div>
 
-      {combat.status !== "COMPLETED" && (
-        <div className="combat-resolution">
-          <h3>Разрешить действие</h3>
-          <div className="target-grid">
-            {combat.combatants.map((item) => (
-              <label
-                className={
-                  selected.includes(item.id) ? "target selected" : "target"
-                }
-                key={item.id}
-              >
+      {combat.status !== "COMPLETED" && activeTarget && (
+        <div className="dice-overlay" role="dialog" aria-modal="true">
+          <div className="dice-animation-card entity-detail">
+            <div className="section-heading">
+              <h2>{activeTarget.name}</h2>
+              <button onClick={() => setSelected([])}>Закрыть</button>
+            </div>
+            <p>
+              {activeTarget.current_hp ?? "?"}/{activeTarget.max_hp ?? "?"} HP ·
+              КБ {activeTarget.armor_class ?? "?"}
+            </p>
+            <p>
+              Эффекты:{" "}
+              {activeTarget.conditions.map((item) => item.name).join(", ") ||
+                "нет"}
+            </p>
+            <div className="combat-toolbar">
+              <input
+                aria-label="Величина эффекта"
+                type="number"
+                min="0"
+                value={amount}
+                onChange={(event) => setAmount(Number(event.target.value))}
+              />
+              <button onClick={() => health("damage")}>Нанести урон</button>
+              <button onClick={() => health("healing")}>Вылечить</button>
+              <button onClick={() => health("temporary_hp")}>
+                Добавить временные HP
+              </button>
+              <label className="checkbox-inline">
                 <input
                   type="checkbox"
-                  checked={selected.includes(item.id)}
-                  onChange={() => toggleTarget(item.id)}
+                  checked={critical}
+                  onChange={(event) => setCritical(event.target.checked)}
                 />
-                <span>
-                  <strong>{item.name}</strong>
-                  <small>
-                    {item.current_hp ?? "?"}/{item.max_hp ?? "?"} HP ·{" "}
-                    {item.wound_state ?? "без ран"}
-                  </small>
-                </span>
+                Критический
               </label>
-            ))}
-          </div>
-          <div className="combat-toolbar">
-            <input
-              aria-label="Величина эффекта"
-              type="number"
-              min="0"
-              value={amount}
-              onChange={(event) => setAmount(Number(event.target.value))}
-            />
-            <button onClick={() => health("damage")}>Урон</button>
-            <button onClick={() => health("healing")}>Лечение</button>
-            <button onClick={() => health("temporary_hp")}>Временные HP</button>
-            <button onClick={() => health("prevention")}>Предотвращение</button>
-            <label className="checkbox-inline">
+            </div>
+            <div className="combat-toolbar">
               <input
-                type="checkbox"
-                checked={critical}
-                onChange={(event) => setCritical(event.target.checked)}
+                aria-label="Состояние"
+                value={condition}
+                onChange={(event) => setCondition(event.target.value)}
               />
-              Критический
-            </label>
-          </div>
-          <div className="combat-toolbar">
-            <input
-              aria-label="Состояние"
-              value={condition}
-              onChange={(event) => setCondition(event.target.value)}
-            />
-            <button onClick={addCondition} disabled={selected.length !== 1}>
-              Добавить состояние
-            </button>
-          </div>
-          <div className="combat-toolbar">
-            <input
-              aria-label="Формула броска ведущего"
-              value={expression}
-              onChange={(event) => setExpression(event.target.value)}
-            />
-            <button
-              onClick={() =>
-                run("roll", () =>
-                  api.rollCombat(
-                    combat,
-                    snapshot.current_device_id,
-                    selected.length
-                      ? selected
-                      : combat.combatants.slice(0, 1).map((item) => item.id),
-                    expression,
-                  ),
-                )
-              }
-              disabled={!combat.combatants.length}
-            >
-              Бросить
-            </button>
+              <label className="checkbox-inline">
+                <input
+                  type="checkbox"
+                  checked={persistentCondition}
+                  onChange={(event) =>
+                    setPersistentCondition(event.target.checked)
+                  }
+                />
+                Сохранить в карточке персонажа
+              </label>
+              <button onClick={addCondition}>Добавить состояние</button>
+            </div>
           </div>
         </div>
       )}
@@ -560,7 +666,6 @@ export function PlayerCombatPanel({
   refresh: () => void;
 }) {
   const combat = snapshot.combat;
-  const [expression, setExpression] = useState("1d20");
   const [support, setSupport] = useState("");
   const [error, setError] = useState<unknown>();
   const own = useMemo(
@@ -611,28 +716,6 @@ export function PlayerCombatPanel({
       </div>
       {combat.status !== "COMPLETED" && rollActor && (
         <>
-          <div className="combat-toolbar">
-            <input
-              aria-label="Формула броска"
-              value={expression}
-              onChange={(event) => setExpression(event.target.value)}
-            />
-            <button
-              className="primary"
-              onClick={() =>
-                perform(() =>
-                  api.rollCombat(
-                    combat,
-                    snapshot.current_device_id,
-                    [rollActor],
-                    expression,
-                  ),
-                )
-              }
-            >
-              Бросить
-            </button>
-          </div>
           {own && (
             <form
               className="inline-form"

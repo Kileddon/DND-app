@@ -3,8 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.test-tmp/
 .mypy_cache/
 .ruff_cache/
+.uv-cache/
+.npm-cache/
 .coverage
 coverage.xml
 htmlcov/
@@ -65,3 +68,5 @@ temp/
 /TZ-tabletop-companion-v0.2.md
 /User-scenarios-v0.1.md
 /Implementation-prompt-Python-v1.0.md
+/Module2/
+/расы.py

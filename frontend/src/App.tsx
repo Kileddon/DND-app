@@ -16,6 +16,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>();
+  const [route, setRoute] = useState(location.hash);
 
   const refresh = useCallback(async () => {
     try {
@@ -55,6 +56,12 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const updateRoute = () => setRoute(location.hash);
+    window.addEventListener("hashchange", updateRoute);
+    return () => window.removeEventListener("hashchange", updateRoute);
+  }, []);
+
   const isAwaitingProfile =
     snapshot?.device?.role === "player" && !snapshot.player;
   const connection = useRealtime(
@@ -72,7 +79,7 @@ export function App() {
     );
   }
   if (!snapshot) {
-    return location.hash === "#/host" ? (
+    return route === "#/host" ? (
       <HostSetup onReady={refresh} />
     ) : (
       <WelcomeScreen onReady={refresh} />

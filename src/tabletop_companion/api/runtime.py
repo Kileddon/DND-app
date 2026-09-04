@@ -127,11 +127,16 @@ class EventHub:
             for connection in connections:
                 if connection.device.room_id != event.room_id:
                     continue
-                if connection.device.role is not DeviceRole.GM and event.visibility not in {
-                    "room",
-                    f"player:{connection.device.player_id}",
-                }:
-                    continue
+                if connection.device.role is not DeviceRole.GM:
+                    directly_visible = event.visibility in {
+                        "room",
+                        f"player:{connection.device.player_id}",
+                    }
+                    shared = event.visibility.startswith("players:") and (
+                        connection.device.player_id or ""
+                    ) in event.visibility.removeprefix("players:").split(",")
+                    if not directly_visible and not shared:
+                        continue
                 envelope = serialize_event(self._projector(event, connection.device))
                 try:
                     connection.queue.put_nowait(envelope)

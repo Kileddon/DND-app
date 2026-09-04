@@ -2,7 +2,7 @@
 
 ## Активы и границы доверия
 
-Защищаются: device/recovery/pairing/invitation credentials, room password, приватное состояние
+Защищаются: device/pairing/invitation credentials, room password, приватное состояние
 ГМа, персонажи, inventory, event log и целостность session lifecycle. Host-процесс и локальные
 файлы Windows считаются доверенными; браузер игрока, входящие HTTP/WS данные и остальные
 устройства LAN — недоверенными. Интернет и cloud в runtime отсутствуют.
@@ -25,7 +25,7 @@
 
 ## Security-инварианты
 
-- Plaintext password, host secret, device/recovery/pairing/invitation token не сохраняются в БД,
+- Plaintext password, host secret, device/pairing/invitation token не сохраняются в БД,
   журнале событий, structured logs или diagnostic export.
 - Player snapshot/replay не содержит GM-only events и секретных полей.
 - Revoke блокирует новые HTTP-команды и закрывает существующие WebSocket соединения.

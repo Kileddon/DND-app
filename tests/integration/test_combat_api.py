@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from starlette.websockets import WebSocketDisconnect
 
 from tabletop_companion.api.app import create_app
@@ -25,6 +27,7 @@ def settings(database_url: str, tmp_path: Path) -> Settings:
         log_level="WARNING",
         host_secret_path=tmp_path / "host-secret.key",
         frontend_dist=tmp_path / "missing-frontend",
+        media_library=tmp_path / "media",
     )
 
 
@@ -124,6 +127,25 @@ def test_combat_health_visibility_compensation_and_restart(
             ),
             201,
         )["data"]
+        character_combatant = next(
+            item for item in combat["combatants"] if item["kind"] == "character"
+        )
+        assert character_combatant["max_hp"] == character["max_hp"]
+        assert character_combatant["current_hp"] == character["current_hp"]
+        assert character_combatant["armor_class"] == character["armor_class"]
+        image_stream = BytesIO()
+        Image.new("RGB", (2, 2), "green").save(image_stream, format="PNG")
+        image_url = body(
+            client.post(
+                f"/api/v2/rooms/{room['id']}/media",
+                headers={
+                    "Authorization": f"Bearer {gm_credential}",
+                    "Content-Type": "image/png",
+                    "X-Upload-Filename": "goblin.png",
+                },
+                content=image_stream.getvalue(),
+            )
+        )["url"]
         template = body(
             client.post(
                 f"/api/v2/rooms/{room['id']}/monster-templates",
@@ -134,6 +156,8 @@ def test_combat_health_visibility_compensation_and_restart(
                     max_hp=10,
                     current_hp=10,
                     armor_class=13,
+                    image_url=image_url,
+                    species="Гоблиноид",
                     notes="",
                     conditions=["Frightened"],
                     actions=["Scimitar"],
@@ -141,6 +165,8 @@ def test_combat_health_visibility_compensation_and_restart(
             ),
             201,
         )["data"]
+        assert template["species"] == "Гоблиноид"
+        assert template["image_url"] == image_url
         combat = body(
             client.post(
                 f"/api/v2/rooms/{room['id']}/combats/{combat['id']}/monsters",
@@ -292,6 +318,12 @@ def test_combat_health_visibility_compensation_and_restart(
                 headers={"Authorization": f"Bearer {gm_credential}"},
             )
         )
+        restored_template = next(
+            item for item in restored_combat["monster_templates"] if item["id"] == template["id"]
+        )
+        assert restored_template["species"] == "Гоблиноид"
+        assert restored_template["image_url"] == image_url
+        assert client.get(image_url).status_code == 200
         target = next(item for item in restored_combat["combatants"] if item["kind"] == "monster")
         original = body(
             client.post(
@@ -335,8 +367,14 @@ def test_combat_health_visibility_compensation_and_restart(
         restored = body(
             restarted.get(
                 "/api/v2/me/combat",
-                headers={"Authorization": f"Bearer {player_credential}"},
+                headers={"Authorization": f"Bearer {gm_credential}"},
             )
         )
         assert restored["status"] == "ACTIVE"
         assert restored["round_number"] == 1
+        restored_template = next(
+            item for item in restored["monster_templates"] if item["id"] == template["id"]
+        )
+        assert restored_template["species"] == "Гоблиноид"
+        assert restored_template["image_url"] == image_url
+        assert restarted.get(image_url).status_code == 200

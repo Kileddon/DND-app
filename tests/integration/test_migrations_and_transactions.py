@@ -50,11 +50,13 @@ def test_migrations_apply_to_empty_database(database_url: str) -> None:
             "monster_templates",
             "dice_rolls",
             "event_compensations",
+            "gm_notes",
+            "npc_notes",
+            "player_note_nodes",
         } <= table_names
         with engine.connect() as connection:
             assert (
-                MigrationContext.configure(connection).get_current_revision()
-                == "0004_monster_template_conditions"
+                MigrationContext.configure(connection).get_current_revision() == "0008_player_notes"
             )
     finally:
         engine.dispose()
@@ -190,6 +192,71 @@ def test_previous_revision_upgrades_and_wal_backup_restores(
     with restored.connect() as connection:
         assert connection.exec_driver_sql("SELECT name FROM rooms").scalar_one() == "Migrated room"
     restored.dispose()
+
+
+def test_character_overhaul_backfills_accounts_and_room_assignments(
+    database_url: str,
+) -> None:
+    run_migrations(database_url, "0006_dice_roll_selection")
+    engine = create_database_engine(database_url)
+    room_id, player_id, character_id = (str(uuid4()) for _ in range(3))
+    now = datetime.now(UTC).isoformat()
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO rooms "
+            "(id, name, gm_id, access_mode, ruleset_version, version, created_at, code) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (room_id, "Legacy", str(uuid4()), "open", "simple-v1", 1, now, "LEGACY01"),
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO local_players "
+            "(id, room_id, display_name, version, created_at, selected_character_id, "
+            "updated_at, removed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (player_id, room_id, "Legacy player", 1, now, character_id, now, None),
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO characters "
+            "(id, draft_id, room_id, owner_id, name, ruleset_version, stats, ability_ids, "
+            "version, created_at, race_id, class_id, max_hp, current_hp, armor_class) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                character_id,
+                str(uuid4()),
+                room_id,
+                player_id,
+                "Legacy hero",
+                "simple-v1",
+                '{"might": 2, "mind": 3}',
+                "[]",
+                1,
+                now,
+                "human",
+                "fighter",
+                10,
+                10,
+                10,
+            ),
+        )
+    engine.dispose()
+
+    run_migrations(database_url)
+
+    upgraded = create_database_engine(database_url)
+    with upgraded.connect() as connection:
+        account = connection.exec_driver_sql(
+            "SELECT id, display_name FROM accounts WHERE id = ?", (player_id,)
+        ).one()
+        assignment = connection.exec_driver_sql(
+            "SELECT room_id FROM character_room_assignments WHERE character_id = ?",
+            (character_id,),
+        ).scalar_one()
+        character_account = connection.exec_driver_sql(
+            "SELECT account_id FROM characters WHERE id = ?", (character_id,)
+        ).scalar_one()
+    upgraded.dispose()
+    assert account == (player_id, "Legacy player")
+    assert assignment == room_id
+    assert character_account == player_id
 
 
 def test_optimistic_locking_rejects_concurrent_profile_update(database_url: str) -> None:

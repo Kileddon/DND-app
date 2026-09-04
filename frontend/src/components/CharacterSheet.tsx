@@ -1,0 +1,482 @@
+import { type FormEvent, useState } from "react";
+
+import {
+  api,
+  type Character,
+  type CharacterOptions,
+  type InventoryItem,
+  type Snapshot,
+} from "../api";
+import { ErrorNotice } from "./ErrorNotice";
+import {
+  abilityModifier,
+  statLabels,
+  visibleOtherSlotCount,
+} from "../viewRules";
+
+const slotLabels: Record<string, string> = {
+  left_hand: "Левая рука",
+  right_hand: "Правая рука",
+  armor: "Доспех",
+  other_1: "Иное 1",
+  other_2: "Иное 2",
+  other_3: "Иное 3",
+  other_4: "Иное 4",
+};
+
+interface FeatureView {
+  id: string;
+  name: string;
+  description: string;
+  required_level: number;
+}
+
+function sizeLabel(size?: string) {
+  return size === "small" ? "Маленький" : size === "medium" ? "Средний" : size;
+}
+
+function fitsSlot(item: InventoryItem, slot: string) {
+  if (slot === "armor") return item.slot_compatibility === "armor";
+  if (slot.startsWith("other_")) return item.slot_compatibility === "other";
+  return item.slot_compatibility === "hand";
+}
+
+export function CharacterSheet({
+  snapshot,
+  initial,
+  options,
+  onRefresh,
+  preview = false,
+  onConfirm,
+  onArchived,
+}: {
+  snapshot: Snapshot;
+  initial: Character;
+  options?: CharacterOptions;
+  onRefresh: () => void;
+  preview?: boolean;
+  onConfirm?: () => void;
+  onArchived?: () => void;
+}) {
+  const player = snapshot.player!;
+  const [character, setCharacter] = useState(initial);
+  const [feature, setFeature] = useState<FeatureView>();
+  const [raceInfoOpen, setRaceInfoOpen] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [itemName, setItemName] = useState("");
+  const [weight, setWeight] = useState("0");
+  const [compatibility, setCompatibility] =
+    useState<InventoryItem["slot_compatibility"]>("none");
+  const [selectedSlot, setSelectedSlot] = useState<string>();
+  const [error, setError] = useState<unknown>();
+  const [pending, setPending] = useState(false);
+  const [currentHp, setCurrentHp] = useState(initial.current_hp);
+  const [temporaryHp, setTemporaryHp] = useState(initial.temporary_hp ?? 0);
+  const detailedSpecies = options?.species?.find(
+    (item) => item.id === character.race_id,
+  );
+  const simpleRace = options?.races.find(
+    (item) => item.id === character.race_id,
+  );
+  const species =
+    detailedSpecies ??
+    (simpleRace
+      ? {
+          ...simpleRace,
+          creature_type: "Гуманоид",
+          speed: character.speed ?? 30,
+          features: [],
+        }
+      : undefined);
+  const className =
+    options?.class_details?.find((item) => item.id === character.class_id)
+      ?.name ??
+    options?.classes.find((item) => item.id === character.class_id)?.name ??
+    character.class_id;
+  const slots = [
+    "left_hand",
+    "right_hand",
+    "armor",
+    ...Array.from(
+      { length: visibleOtherSlotCount(character.inventory) },
+      (_, index) => `other_${index + 1}`,
+    ),
+  ];
+
+  async function run(operation: () => Promise<{ data: Character }>) {
+    setPending(true);
+    setError(undefined);
+    try {
+      const response = await operation();
+      setCharacter(response.data);
+      onRefresh();
+    } catch (reason) {
+      setError(reason);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function addItem(event: FormEvent) {
+    event.preventDefault();
+    await run(() =>
+      api.addItem(
+        snapshot.current_device_id,
+        player.id,
+        character,
+        itemName,
+        weight,
+        compatibility,
+      ),
+    );
+    setItemName("");
+  }
+
+  async function saveHealth(event: FormEvent) {
+    event.preventDefault();
+    await run(() =>
+      api.updateOwnCharacterHealth(
+        snapshot.current_device_id,
+        character,
+        currentHp,
+        temporaryHp,
+      ),
+    );
+  }
+
+  async function archiveCharacter() {
+    setPending(true);
+    setError(undefined);
+    try {
+      await api.changeCharacterLifecycle(
+        snapshot.current_device_id,
+        character,
+        "archive",
+      );
+      setConfirmArchive(false);
+      onArchived?.();
+      onRefresh();
+    } catch (reason) {
+      setError(reason);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function equip(slot: string, item: InventoryItem) {
+    await run(() =>
+      api.equipItem(
+        snapshot.current_device_id,
+        player.id,
+        character,
+        item,
+        slot,
+      ),
+    );
+    setSelectedSlot(undefined);
+  }
+
+  return (
+    <div className="player-grid character-sheet">
+      <section className="card stack">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">ЛИСТ ПЕРСОНАЖА</p>
+            <h2>{character.name}</h2>
+          </div>
+        </div>
+        <p>
+          <button className="race-name" onClick={() => setRaceInfoOpen(true)}>
+            {species?.name ?? character.race_id}
+          </button>{" "}
+          · {className} · уровень {character.level ?? 1} ·{" "}
+          {character.experience ?? 0} опыта
+        </p>
+        <div className="vitals">
+          <strong>
+            {character.current_hp}/{character.max_hp} HP
+          </strong>
+          <strong>Временные HP {character.temporary_hp ?? 0}</strong>
+          <strong>КБ {character.armor_class}</strong>
+          <strong>
+            Инициатива {abilityModifier(character.stats.dexterity)}
+          </strong>
+        </div>
+        {!preview && (
+          <form className="mobile-health-editor" onSubmit={saveHealth}>
+            <label>
+              Текущие HP
+              <input
+                aria-label="Текущие HP"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max={character.max_hp}
+                value={currentHp}
+                onChange={(event) => setCurrentHp(Number(event.target.value))}
+                required
+              />
+            </label>
+            <label>
+              Временные HP
+              <input
+                aria-label="Временные HP"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                value={temporaryHp}
+                onChange={(event) => setTemporaryHp(Number(event.target.value))}
+                required
+              />
+            </label>
+            <button className="secondary" disabled={pending}>
+              Сохранить HP
+            </button>
+          </form>
+        )}
+        <p>
+          Размер: {sizeLabel(character.size)} · Скорость: {character.speed}{" "}
+          футов
+        </p>
+        <div className="stats">
+          {Object.entries(character.stats).map(([id, value]) => {
+            const stat = options?.stats?.find((item) => item.id === id);
+            return (
+              <button className="stat-card" key={id} title={stat?.description}>
+                <span>{stat?.name ?? statLabels[id] ?? id}</span>
+                <strong>{value}</strong>
+                <small>{abilityModifier(value)}</small>
+              </button>
+            );
+          })}
+        </div>
+        <h3>Расовые особенности</h3>
+        <div className="feature-buttons">
+          {species?.features.map((item) => (
+            <button
+              className="secondary"
+              key={item.id}
+              onClick={() => setFeature(item)}
+            >
+              {item.name}
+              {item.required_level > (character.level ?? 1)
+                ? ` · уровень ${item.required_level}`
+                : ""}
+            </button>
+          ))}
+        </div>
+        <h3>Карточки способностей</h3>
+        <div className="abilities">
+          {character.abilities.map((ability) => (
+            <article key={ability.id}>
+              <strong>{ability.name}</strong>
+              <span>{ability.description}</span>
+            </article>
+          ))}
+        </div>
+        {!preview && (
+          <button
+            className="danger-text"
+            onClick={() => setConfirmArchive(true)}
+          >
+            Архивировать персонажа
+          </button>
+        )}
+        <ErrorNotice error={error} />
+      </section>
+      <section className="card stack backpack">
+        <p className="eyebrow">РЮКЗАК И ЭКИПИРОВКА</p>
+        <h2>Общий вес: {character.total_weight} кг</h2>
+        <div className="equipment-layout">
+          <div className="equipment-slots">
+            {slots.map((slot) => {
+              const item = character.inventory.find(
+                (candidate) => candidate.equipment_slot === slot,
+              );
+              return (
+                <div className="equipment-slot" key={slot}>
+                  <strong>{slotLabels[slot]}</strong>
+                  {item ? (
+                    <>
+                      <span>{item.name}</span>
+                      <button
+                        disabled={pending}
+                        onClick={() =>
+                          run(() =>
+                            api.equipItem(
+                              snapshot.current_device_id,
+                              player.id,
+                              character,
+                              item,
+                              null,
+                            ),
+                          )
+                        }
+                      >
+                        Снять
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => setSelectedSlot(slot)}>Пусто</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {selectedSlot && (
+          <div
+            className="equipment-picker"
+            role="dialog"
+            aria-label="Выбор предмета"
+          >
+            <strong>{slotLabels[selectedSlot]}</strong>
+            {character.inventory
+              .filter(
+                (candidate) =>
+                  !candidate.equipment_slot &&
+                  fitsSlot(candidate, selectedSlot),
+              )
+              .map((candidate) => (
+                <button
+                  key={candidate.id}
+                  disabled={pending}
+                  onClick={() => void equip(selectedSlot, candidate)}
+                >
+                  {candidate.name}
+                </button>
+              ))}
+            {!character.inventory.some(
+              (candidate) =>
+                !candidate.equipment_slot && fitsSlot(candidate, selectedSlot),
+            ) && <span className="muted">Подходящих предметов нет.</span>}
+            <button onClick={() => setSelectedSlot(undefined)}>Закрыть</button>
+          </div>
+        )}
+        <h3>В рюкзаке</h3>
+        {character.inventory
+          .filter((item) => !item.equipment_slot)
+          .map((item) => (
+            <div className="inventory-row" key={item.id}>
+              <span>
+                <strong>{item.name}</strong>
+                <small>
+                  {item.quantity} шт. · {item.unit_weight} кг
+                </small>
+              </span>
+              <button
+                className="danger-text"
+                disabled={pending || item.locked}
+                onClick={() =>
+                  run(() =>
+                    api.discardItem(
+                      snapshot.current_device_id,
+                      player.id,
+                      character,
+                      item,
+                    ),
+                  )
+                }
+              >
+                <span aria-label="Удалить 1">Выбросить 1</span>
+              </button>
+            </div>
+          ))}
+        {!character.inventory.length && (
+          <p className="muted">Инвентарь пуст.</p>
+        )}
+        {!preview && (
+          <form className="stack compact" onSubmit={addItem}>
+            <input
+              placeholder="Новый предмет"
+              value={itemName}
+              onChange={(event) => setItemName(event.target.value)}
+              required
+            />
+            <input
+              aria-label="Вес предмета"
+              value={weight}
+              onChange={(event) => setWeight(event.target.value)}
+              pattern="\d+(\.\d{1,3})?"
+            />
+            <select
+              aria-label="Тип слота"
+              value={compatibility}
+              onChange={(event) =>
+                setCompatibility(
+                  event.target.value as InventoryItem["slot_compatibility"],
+                )
+              }
+            >
+              <option value="none">Только рюкзак</option>
+              <option value="hand">Рука</option>
+              <option value="armor">Доспех</option>
+              <option value="other">Иное</option>
+            </select>
+            <button className="secondary" disabled={pending}>
+              Добавить
+            </button>
+          </form>
+        )}
+        {preview && (
+          <button className="primary" onClick={onConfirm}>
+            Подтвердить персонажа
+          </button>
+        )}
+      </section>
+      {feature && (
+        <div className="dice-overlay" role="dialog" aria-modal="true">
+          <div className="dice-animation-card">
+            <h2>{feature.name}</h2>
+            <p>{feature.description}</p>
+            <strong>
+              {feature.required_level <= (character.level ?? 1)
+                ? "Доступно"
+                : `Откроется на уровне ${feature.required_level}`}
+            </strong>
+            <button onClick={() => setFeature(undefined)}>Закрыть</button>
+          </div>
+        </div>
+      )}
+      {raceInfoOpen && species && (
+        <div className="dice-overlay" role="dialog" aria-modal="true">
+          <div className="dice-animation-card race-info">
+            <h2>{species.name}</h2>
+            <p>{species.description}</p>
+            <p>
+              Тип: {species.creature_type}. Скорость: {species.speed} футов.
+            </p>
+            <div className="feature-buttons">
+              {species.features.map((item) => (
+                <button
+                  className="secondary"
+                  key={item.id}
+                  onClick={() => setFeature(item)}
+                >
+                  {item.name}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setRaceInfoOpen(false)}>Закрыть</button>
+          </div>
+        </div>
+      )}
+      {confirmArchive && (
+        <div className="dice-overlay" role="dialog" aria-modal="true">
+          <div className="dice-animation-card">
+            <h2>Архивировать {character.name}?</h2>
+            <p>Персонаж исчезнет из активного списка, но история сохранится.</p>
+            <button
+              className="danger"
+              disabled={pending}
+              onClick={() => void archiveCharacter()}
+            >
+              Архивировать
+            </button>
+            <button onClick={() => setConfirmArchive(false)}>Отмена</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

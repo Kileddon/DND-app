@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tabletop_companion.domain.combat import HealthActionType, RollMode, RollVisibility
+from tabletop_companion.domain.combat import (
+    HealthActionType,
+    RollMode,
+    RollSelection,
+    RollVisibility,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +27,7 @@ class CreateCombatCommand:
     client_time: str | None
     room_id: str
     session_id: str
+    name: str = "Энкаунтер"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +54,10 @@ class CreateMonsterTemplateCommand:
     notes: str
     conditions: tuple[str, ...]
     actions: tuple[str, ...]
+    species: str = ""
+    abilities: str = ""
+    damage: str = ""
+    items: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +124,7 @@ class AddConditionCommand:
     description: str
     source_id: str | None
     visible_to_players: bool
+    persistent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +166,7 @@ class RollDiceCommand:
     recipient_player_id: str | None
     physical_result: int | None
     action_event_id: str | None
+    selection: RollSelection = RollSelection.NEUTRAL
 
 
 @dataclass(frozen=True, slots=True)

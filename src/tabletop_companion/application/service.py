@@ -6,15 +6,19 @@ import string
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
+from decimal import Decimal
+from random import SystemRandom
 from typing import Any, TypeVar, cast
 from uuid import uuid4
 
 from tabletop_companion.application.commands import (
     AddInventoryItemCommand,
+    CharacterLifecycleCommand,
     ChooseAbilityCardCommand,
     ConfirmCharacterDraftCommand,
     CreateRoomCommand,
     DiscardInventoryItemCommand,
+    EquipInventoryItemCommand,
     JoinLocalPlayerCommand,
     RestartCharacterDraftCommand,
     StartCharacterDraftCommand,
@@ -24,6 +28,13 @@ from tabletop_companion.application.ports import (
     ProcessedCommand,
     UnitOfWork,
     UnitOfWorkFactory,
+)
+from tabletop_companion.domain.character_creation import (
+    SlotCompatibility,
+    apply_background_bonus,
+    drop_lowest,
+    standard_stats,
+    validate_point_buy,
 )
 from tabletop_companion.domain.errors import (
     ContentConfigurationError,
@@ -42,6 +53,7 @@ from tabletop_companion.domain.models import (
     Room,
 )
 from tabletop_companion.domain.rules import CardSampler, SimpleRuleset
+from tabletop_companion.domain.species import validate_species_choices
 
 CommandT = TypeVar("CommandT")
 ResultData = dict[str, Any]
@@ -158,15 +170,74 @@ class CompanionService:
             room = uow.get_room(command.room_id)
             player = uow.get_local_player(command.player_id)
             self._ensure_player_room(player, room.id)
-            ruleset = self._ruleset(room.ruleset_version)
+            ruleset = self._ruleset(command.ruleset_version or room.ruleset_version)
             draft = ruleset.start_draft(
                 draft_id=self._id_factory(),
                 room_id=room.id,
                 owner_id=player.id,
                 name=command.name,
                 sampler=self._sampler,
+                race_id=command.race_id,
+                class_id=command.class_id,
                 now=self._clock(),
             )
+            draft.account_id = player.account_id
+            if ruleset.version == "character-v2":
+                choices = command.species_choices or self._default_species_choices(command.race_id)
+                validate_species_choices(command.race_id, choices)
+                random_rolls: list[dict[str, object]] = []
+                if command.stat_method == "standard":
+                    base_stats = standard_stats(command.class_id)
+                elif command.stat_method == "point_buy":
+                    base_stats = dict(command.stats)
+                    validate_point_buy(base_stats)
+                elif command.stat_method == "random":
+                    generator = SystemRandom()
+                    generated: list[int] = []
+                    for _ in range(6):
+                        values = (
+                            generator.randint(1, 6),
+                            generator.randint(1, 6),
+                            generator.randint(1, 6),
+                            generator.randint(1, 6),
+                        )
+                        dropped_index, total = drop_lowest(values)
+                        generated.append(total)
+                        random_rolls.append(
+                            {"values": list(values), "dropped_index": dropped_index, "total": total}
+                        )
+                    if command.stats:
+                        base_stats = dict(command.stats)
+                        if sorted(base_stats.values()) != sorted(generated):
+                            raise DomainValidationError(
+                                "Every generated score must be assigned exactly once.",
+                                code="invalid_random_assignment",
+                            )
+                    else:
+                        base_stats = dict(
+                            zip(standard_stats(command.class_id), generated, strict=True)
+                        )
+                else:
+                    raise DomainValidationError("Unknown ability generation method.")
+                allocations = command.background_allocations or {
+                    stat: 1 for stat in command.background_stats
+                }
+                draft.stats = apply_background_bonus(
+                    base_stats,
+                    command.background_stats,
+                    command.background_pattern,
+                    allocations,
+                )
+                draft.base_stats = base_stats
+                draft.species_choices = choices
+                draft.stat_method = command.stat_method
+                draft.background = {
+                    "pattern": command.background_pattern,
+                    "stats": list(command.background_stats),
+                    "allocations": allocations,
+                }
+                draft.random_rolls = random_rolls
+                draft.step = "abilities"
             uow.add_character_draft(draft)
             uow.add_event(
                 self._event(
@@ -177,7 +248,11 @@ class CompanionService:
                     actor_id=player.id,
                     command_id=command.command_id,
                     target_ids=(draft.id,),
-                    payload={"ruleset_version": draft.ruleset_version},
+                    payload={
+                        "ruleset_version": draft.ruleset_version,
+                        "race_id": draft.race_id,
+                        "class_id": draft.class_id,
+                    },
                 )
             )
             return self._draft_data(draft, ruleset)
@@ -280,12 +355,14 @@ class CompanionService:
     def add_inventory_item(self, command: AddInventoryItemCommand) -> CommandOutcome:
         def operation(uow: UnitOfWork) -> ResultData:
             character = uow.get_character(command.character_id)
-            self._ensure_owner(character.owner_id, command.actor_id)
+            self._ensure_character_owner(uow, character, command.actor_id)
             definition = ItemDefinition(
                 id=self._id_factory(),
                 name=command.name.strip(),
                 consumable=command.consumable,
                 locked=command.locked,
+                unit_weight=Decimal(command.unit_weight),
+                slot_compatibility=SlotCompatibility(command.slot_compatibility),
             )
             if not definition.name:
                 raise DomainValidationError("Item name must not be blank.")
@@ -299,6 +376,8 @@ class CompanionService:
                 equipped=command.equipped,
                 charges=command.charges,
                 created_at=self._clock(),
+                unit_weight=definition.unit_weight,
+                slot_compatibility=definition.slot_compatibility,
             )
             character.add_item(item, expected_version=command.expected_version)
             uow.add_item_definition(definition)
@@ -326,10 +405,83 @@ class CompanionService:
 
         return self._execute("add_inventory_item", command, command.actor_id, operation)
 
+    def equip_inventory_item(self, command: EquipInventoryItemCommand) -> CommandOutcome:
+        def operation(uow: UnitOfWork) -> ResultData:
+            character = uow.get_character(command.character_id)
+            self._ensure_character_owner(uow, character, command.actor_id)
+            if command.slot is None:
+                character.unequip(command.item_id, expected_version=command.expected_version)
+                event_type = "ItemUnequipped"
+            else:
+                character.equip(
+                    command.item_id, command.slot, expected_version=command.expected_version
+                )
+                event_type = "ItemEquipped"
+            uow.save_character(character)
+            uow.add_event(
+                self._event(
+                    event_type=event_type,
+                    aggregate_type="character",
+                    aggregate_id=character.id,
+                    room_id=character.room_id,
+                    actor_id=command.actor_id,
+                    command_id=command.command_id,
+                    source_id=command.item_id,
+                    target_ids=(character.id, command.item_id),
+                    payload={"item_id": command.item_id, "slot": command.slot},
+                )
+            )
+            return self._character_data(character, self._ruleset(character.ruleset_version))
+
+        return self._execute("equip_inventory_item", command, command.actor_id, operation)
+
+    def change_character_lifecycle(self, command: CharacterLifecycleCommand) -> CommandOutcome:
+        def operation(uow: UnitOfWork) -> ResultData:
+            player = uow.get_local_player(command.actor_id)
+            character = uow.get_character(command.character_id)
+            if character.account_id != (player.account_id or player.id):
+                raise PermissionDeniedError("The player does not control this character.")
+            if command.action == "assign":
+                if character.archived_at is not None:
+                    raise DomainValidationError("Archived characters cannot be assigned.")
+                character.ensure_version(command.expected_version)
+                uow.assign_character(character.id, command.room_id, self._clock().isoformat())
+                event_type = "CharacterAssigned"
+            elif command.action == "archive":
+                character.archive(
+                    now=self._clock(),
+                    expected_version=command.expected_version,
+                    active_encounter=uow.character_in_active_encounter(character.id),
+                )
+                uow.save_character(character)
+                uow.clear_character_selections(character.id)
+                event_type = "CharacterArchived"
+            elif command.action == "restore":
+                character.restore(expected_version=command.expected_version)
+                uow.save_character(character)
+                event_type = "CharacterRestored"
+            else:
+                raise DomainValidationError("Unknown character lifecycle action.")
+            uow.add_event(
+                self._event(
+                    event_type=event_type,
+                    aggregate_type="character",
+                    aggregate_id=character.id,
+                    room_id=command.room_id,
+                    actor_id=command.actor_id,
+                    command_id=command.command_id,
+                    target_ids=(character.id,),
+                    payload={"action": command.action},
+                )
+            )
+            return self._character_data(character, self._ruleset(character.ruleset_version))
+
+        return self._execute("character_lifecycle", command, command.actor_id, operation)
+
     def discard_inventory_item(self, command: DiscardInventoryItemCommand) -> CommandOutcome:
         def operation(uow: UnitOfWork) -> ResultData:
             character = uow.get_character(command.character_id)
-            self._ensure_owner(character.owner_id, command.actor_id)
+            self._ensure_character_owner(uow, character, command.actor_id)
             item = next(
                 (candidate for candidate in character.inventory if candidate.id == command.item_id),
                 None,
@@ -376,6 +528,10 @@ class CompanionService:
         with self._uow_factory() as uow:
             character = uow.get_character(character_id)
             return self._character_data(character, self._ruleset(character.ruleset_version))
+
+    def character_is_assigned(self, character_id: str, room_id: str) -> bool:
+        with self._uow_factory() as uow:
+            return uow.is_character_assigned(character_id, room_id)
 
     def list_events(self, room_id: str) -> list[ResultData]:
         with self._uow_factory() as uow:
@@ -468,9 +624,11 @@ class CompanionService:
         )
 
     def _default_ruleset(self) -> SimpleRuleset:
-        if len(self._rulesets) != 1:
-            raise ContentConfigurationError("A default ruleset is not configured unambiguously.")
-        return next(iter(self._rulesets.values()))
+        if "simple-v1" in self._rulesets:
+            return self._rulesets["simple-v1"]
+        if len(self._rulesets) == 1:
+            return next(iter(self._rulesets.values()))
+        raise ContentConfigurationError("A default ruleset is not configured unambiguously.")
 
     def _ruleset(self, version: str) -> SimpleRuleset:
         try:
@@ -481,8 +639,30 @@ class CompanionService:
             ) from error
 
     @staticmethod
+    def _default_species_choices(race_id: str) -> dict[str, str]:
+        return {
+            "gnome": {"lineage": "forest", "spellcasting_stat": "intelligence"},
+            "dragonborn": {"lineage": "red"},
+            "human": {"size": "medium", "skill": "perception"},
+            "elf": {
+                "lineage": "high",
+                "spellcasting_stat": "intelligence",
+                "keen_senses": "perception",
+            },
+        }.get(race_id, {})
+
+    @staticmethod
     def _ensure_owner(owner_id: str, actor_id: str) -> None:
         if owner_id != actor_id:
+            raise PermissionDeniedError("The player does not control this character.")
+
+    @staticmethod
+    def _ensure_character_owner(uow: UnitOfWork, character: Character, actor_id: str) -> None:
+        player = uow.get_local_player(actor_id)
+        if character.account_id is not None:
+            if character.account_id != (player.account_id or player.id):
+                raise PermissionDeniedError("The player does not control this character.")
+        elif character.owner_id != actor_id:
             raise PermissionDeniedError("The player does not control this character.")
 
     @staticmethod
@@ -498,6 +678,9 @@ class CompanionService:
             "description": card.description,
             "kind": card.kind,
             "properties": list(card.properties),
+            "class_ids": sorted(card.class_ids),
+            "required_stats": dict(card.required_stats),
+            "required_ability_ids": sorted(card.required_ability_ids),
         }
 
     @staticmethod
@@ -531,6 +714,14 @@ class CompanionService:
             "name": draft.name,
             "ruleset_version": draft.ruleset_version,
             "stats": dict(draft.stats),
+            "race_id": draft.race_id,
+            "class_id": draft.class_id,
+            "step": draft.step,
+            "species_choices": dict(draft.species_choices),
+            "stat_method": draft.stat_method,
+            "base_stats": dict(draft.base_stats),
+            "background": dict(draft.background),
+            "random_rolls": list(draft.random_rolls),
             "offered_cards": [
                 self._card_data(ruleset.card(card_id)) for card_id in draft.offered_card_ids
             ],
@@ -556,6 +747,24 @@ class CompanionService:
             "name": character.name,
             "ruleset_version": character.ruleset_version,
             "stats": dict(character.stats),
+            "race_id": character.race_id,
+            "class_id": character.class_id,
+            "max_hp": character.max_hp,
+            "current_hp": character.current_hp,
+            "armor_class": character.armor_class,
+            "account_id": character.account_id,
+            "archived_at": character.archived_at.isoformat() if character.archived_at else None,
+            "level": character.level,
+            "experience": character.experience,
+            "temporary_hp": character.temporary_hp,
+            "initiative": character.initiative,
+            "proficiency_bonus": character.proficiency_bonus,
+            "size": character.size,
+            "speed": character.speed,
+            "darkvision": character.darkvision,
+            "species_choices": dict(character.species_choices),
+            "persistent_conditions": list(character.persistent_conditions),
+            "total_weight": str(character.total_weight),
             "abilities": [
                 self._card_data(ruleset.card(card_id)) for card_id in character.ability_ids
             ],
@@ -570,6 +779,9 @@ class CompanionService:
                     "equipped": item.equipped,
                     "charges": item.charges,
                     "created_at": item.created_at.isoformat(),
+                    "unit_weight": str(item.unit_weight),
+                    "slot_compatibility": item.slot_compatibility.value,
+                    "equipment_slot": item.equipment_slot,
                 }
                 for item in character.inventory
             ],
