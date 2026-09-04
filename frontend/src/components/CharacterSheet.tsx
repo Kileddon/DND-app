@@ -34,6 +34,10 @@ function modifier(value: number) {
   return result >= 0 ? `+${result}` : `${result}`;
 }
 
+function sizeLabel(size?: string) {
+  return size === "small" ? "Маленький" : size === "medium" ? "Средний" : size;
+}
+
 function fitsSlot(item: InventoryItem, slot: string) {
   if (slot === "armor") return item.slot_compatibility === "armor";
   if (slot.startsWith("other_")) return item.slot_compatibility === "other";
@@ -59,6 +63,7 @@ export function CharacterSheet({
   const [weight, setWeight] = useState("0");
   const [compatibility, setCompatibility] =
     useState<InventoryItem["slot_compatibility"]>("none");
+  const [selectedSlot, setSelectedSlot] = useState<string>();
   const [error, setError] = useState<unknown>();
   const [pending, setPending] = useState(false);
   const species = options?.species?.find(
@@ -115,6 +120,19 @@ export function CharacterSheet({
     }
   }
 
+  async function equip(slot: string, item: InventoryItem) {
+    await run(() =>
+      api.equipItem(
+        snapshot.current_device_id,
+        player.id,
+        character,
+        item,
+        slot,
+      ),
+    );
+    setSelectedSlot(undefined);
+  }
+
   return (
     <div className="player-grid character-sheet">
       <section className="card stack">
@@ -153,9 +171,9 @@ export function CharacterSheet({
           <strong>Инициатива {modifier(character.stats.dexterity)}</strong>
         </div>
         <p>
-          Размер: {character.size} · Скорость: {character.speed} футов · Тёмное
-          зрение: {character.darkvision || "нет"} · Бонус владения: +
-          {character.proficiency_bonus ?? 2}
+          Размер: {sizeLabel(character.size)} · Скорость: {character.speed}{" "}
+          футов · Тёмное зрение: {character.darkvision || "нет"} · Бонус
+          владения: +{character.proficiency_bonus ?? 2}
         </p>
         <div className="stats">
           {Object.entries(character.stats).map(([id, value]) => {
@@ -202,10 +220,22 @@ export function CharacterSheet({
         <p className="eyebrow">РЮКЗАК И ЭКИПИРОВКА</p>
         <h2>Общий вес: {character.total_weight} кг</h2>
         <div className="equipment-layout">
-          <div className="humanoid" aria-hidden="true">
-            ◯<br />
-            ╱▣╲
-            <br />╱ ╲
+          <div className="humanoid" aria-label="Схема экипировки персонажа">
+            <span aria-hidden="true">
+              ◯<br />
+              ╱▣╲
+              <br />╱ ╲
+            </span>
+            {slots.map((slot) => (
+              <button
+                className="equipment-hotspot"
+                key={slot}
+                onClick={() => setSelectedSlot(slot)}
+                title={`Выбрать слот: ${slotLabels[slot]}`}
+              >
+                {slotLabels[slot]}
+              </button>
+            ))}
           </div>
           <div className="equipment-slots">
             {slots.map((slot) => {
@@ -236,43 +266,42 @@ export function CharacterSheet({
                       </button>
                     </>
                   ) : (
-                    <select
-                      value=""
-                      onChange={(event) => {
-                        const selected = character.inventory.find(
-                          (candidate) => candidate.id === event.target.value,
-                        );
-                        if (selected)
-                          void run(() =>
-                            api.equipItem(
-                              snapshot.current_device_id,
-                              player.id,
-                              character,
-                              selected,
-                              slot,
-                            ),
-                          );
-                      }}
-                    >
-                      <option value="">Пусто</option>
-                      {character.inventory
-                        .filter(
-                          (candidate) =>
-                            !candidate.equipment_slot &&
-                            fitsSlot(candidate, slot),
-                        )
-                        .map((candidate) => (
-                          <option value={candidate.id} key={candidate.id}>
-                            {candidate.name}
-                          </option>
-                        ))}
-                    </select>
+                    <button onClick={() => setSelectedSlot(slot)}>Пусто</button>
                   )}
                 </div>
               );
             })}
           </div>
         </div>
+        {selectedSlot && (
+          <div
+            className="equipment-picker"
+            role="dialog"
+            aria-label="Выбор предмета"
+          >
+            <strong>{slotLabels[selectedSlot]}</strong>
+            {character.inventory
+              .filter(
+                (candidate) =>
+                  !candidate.equipment_slot &&
+                  fitsSlot(candidate, selectedSlot),
+              )
+              .map((candidate) => (
+                <button
+                  key={candidate.id}
+                  disabled={pending}
+                  onClick={() => void equip(selectedSlot, candidate)}
+                >
+                  {candidate.name}
+                </button>
+              ))}
+            {!character.inventory.some(
+              (candidate) =>
+                !candidate.equipment_slot && fitsSlot(candidate, selectedSlot),
+            ) && <span className="muted">Подходящих предметов нет.</span>}
+            <button onClick={() => setSelectedSlot(undefined)}>Закрыть</button>
+          </div>
+        )}
         <h3>В рюкзаке</h3>
         {character.inventory
           .filter((item) => !item.equipment_slot)
@@ -342,7 +371,6 @@ export function CharacterSheet({
           <div className="dice-animation-card">
             <h2>{feature.name}</h2>
             <p>{feature.description}</p>
-            <p>{species?.source_url}</p>
             <strong>
               {feature.required_level <= (character.level ?? 1)
                 ? "Доступно"

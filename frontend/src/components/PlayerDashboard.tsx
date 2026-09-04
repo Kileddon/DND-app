@@ -11,10 +11,9 @@ import {
 import { CharacterCreationWizard } from "./CharacterCreationWizard";
 import { CharacterSheet } from "./CharacterSheet";
 import { DicePanel } from "./DicePanel";
-import { EncountersPanel } from "./EncountersPanel";
 import { ErrorNotice } from "./ErrorNotice";
 
-type PlayerSection = "lobby" | "character" | "combat" | "dice";
+type PlayerSection = "lobby" | "cabinet" | "character" | "dice";
 
 export function PlayerDashboard({
   snapshot,
@@ -126,8 +125,8 @@ export function PlayerDashboard({
         {(
           [
             ["lobby", "Лобби"],
+            ["cabinet", "Кабинет"],
             ["character", "Персонаж"],
-            ["combat", "Бой"],
             ["dice", "Кубики"],
           ] as const
         ).map(([value, label]) => (
@@ -157,10 +156,7 @@ export function PlayerDashboard({
       {section === "dice" && (
         <DicePanel snapshot={snapshot} refresh={refresh} />
       )}
-      {section === "combat" && (
-        <EncountersPanel snapshot={snapshot} refresh={refresh} gm={false} />
-      )}
-      {section === "character" && !draft && !creating && (
+      {section === "cabinet" && !draft && !creating && (
         <section className="card stack span-2">
           <div className="section-heading">
             <h2>Мои персонажи</h2>
@@ -187,14 +183,6 @@ export function PlayerDashboard({
               </button>
             ))}
           </div>
-          {character && player.selected_character_id && options && (
-            <CharacterSheet
-              snapshot={snapshot}
-              initial={character}
-              options={options}
-              onRefresh={refresh}
-            />
-          )}{" "}
           {!!snapshot.archived_characters?.length && (
             <details>
               <summary>Архив персонажей</summary>
@@ -208,14 +196,14 @@ export function PlayerDashboard({
           )}
         </section>
       )}
-      {section === "character" && creating && !draft && options && (
+      {section === "cabinet" && creating && !draft && options && (
         <CharacterCreationWizard
           deviceId={snapshot.current_device_id}
           options={options}
           onCreated={setDraft}
         />
       )}
-      {section === "character" && draft && (
+      {section === "cabinet" && draft && (
         <section className="card stack">
           <div className="round-counter">
             Способность{" "}
@@ -262,6 +250,22 @@ export function PlayerDashboard({
               </button>
             </>
           )}
+        </section>
+      )}
+      {section === "character" && character && options && (
+        <CharacterSheet
+          snapshot={snapshot}
+          initial={character}
+          options={options}
+          onRefresh={refresh}
+        />
+      )}
+      {section === "character" && !character && (
+        <section className="card stack">
+          <h2>Персонаж не выбран</h2>
+          <button className="primary" onClick={() => setSection("cabinet")}>
+            Открыть личный кабинет
+          </button>
         </section>
       )}
     </main>

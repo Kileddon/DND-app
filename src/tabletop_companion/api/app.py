@@ -96,6 +96,8 @@ def create_app(
             "the compatibility /api/v1 surface is restricted to the host device."
         ),
     )
+    resolved_settings.media_library.mkdir(parents=True, exist_ok=True)
+    app.state.settings = resolved_settings
 
     @app.middleware("http")
     async def restrict_legacy_api(
@@ -134,6 +136,11 @@ def create_app(
     app.state.event_hub = hub
     app.state.settings = resolved_settings
     app.state.safe_errors = safe_errors
+    app.mount(
+        "/media",
+        StaticFiles(directory=resolved_settings.media_library),
+        name="media",
+    )
     if resolved_settings.frontend_dist.is_dir():
         app.mount(
             "/",

@@ -26,6 +26,16 @@ export function HostDashboard({
   refresh: () => void;
 }) {
   const [pairing, setPairing] = useState<PairingInfo>();
+  const [wifi, setWifi] = useState<{
+    ssid: string;
+    security: "WPA" | "WEP" | "nopass";
+    password: string;
+  }>({
+    ssid: "",
+    security: "WPA",
+    password: "",
+  });
+  const [wifiQr, setWifiQr] = useState<string>();
   const [invitation, setInvitation] = useState<string>();
   const [diagnostics, setDiagnostics] = useState<Diagnostics>();
   const [section, setSection] = useState<
@@ -59,6 +69,14 @@ export function HostDashboard({
     await action("pairing", async () => {
       const response = await api.createPairing(snapshot.room.id, deviceId);
       setPairing(response.data);
+    });
+  }
+
+  async function createWifiQr() {
+    if (!wifi.ssid.trim()) return;
+    await action("wifi", async () => {
+      const response = await api.createWifiQr(snapshot.room.id, wifi);
+      setWifiQr(response.qr_data_url);
     });
   }
 
@@ -108,7 +126,7 @@ export function HostDashboard({
   })();
 
   return (
-    <main className="dashboard">
+    <main className="dashboard host-dashboard">
       <header className="topbar">
         <div>
           <p className="eyebrow">ПАНЕЛЬ ВЕДУЩЕГО</p>
@@ -181,34 +199,95 @@ export function HostDashboard({
               </button>
             </div>
             {pairing ? (
-              <div className="pairing">
-                <img src={pairing.qr_data_url} alt="QR-код подключения" />
+              <div className="pairing pairing-steps">
+                {wifiQr && (
+                  <div>
+                    <span>1. Подключитесь к Wi‑Fi</span>
+                    <img src={wifiQr} alt="QR-код Wi-Fi" />
+                    <small>
+                      Телефон может запросить подтверждение подключения.
+                    </small>
+                  </div>
+                )}
                 <div>
-                  <span>Короткий код</span>
-                  <strong>{pairing.short_code}</strong>
-                  <small>
-                    Действует до{" "}
-                    {new Date(pairing.expires_at).toLocaleTimeString()}
-                  </small>
-                  <button
-                    className="danger-text"
-                    onClick={() =>
-                      action("pairing", () =>
-                        api.revokePairing(
-                          snapshot.room.id,
-                          pairing.id,
-                          deviceId,
-                        ),
-                      )
-                    }
-                  >
-                    Отозвать
-                  </button>
+                  <span>2. Откройте лобби</span>
+                  <img
+                    src={pairing.qr_data_url}
+                    alt="QR-код подключения к лобби"
+                  />
+                  <div>
+                    <span>Короткий код</span>
+                    <strong>{pairing.short_code}</strong>
+                    <small>
+                      Действует до{" "}
+                      {new Date(pairing.expires_at).toLocaleTimeString()}
+                    </small>
+                    <button
+                      className="danger-text"
+                      onClick={() =>
+                        action("pairing", () =>
+                          api.revokePairing(
+                            snapshot.room.id,
+                            pairing.id,
+                            deviceId,
+                          ),
+                        )
+                      }
+                    >
+                      Отозвать
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
               <p className="muted">Создайте одноразовый QR или короткий код.</p>
             )}
+            <details className="wifi-settings">
+              <summary>Настроить QR Wi‑Fi (необязательно)</summary>
+              <div className="inline-form">
+                <input
+                  aria-label="Название Wi-Fi"
+                  placeholder="Название Wi‑Fi"
+                  value={wifi.ssid}
+                  onChange={(event) =>
+                    setWifi({ ...wifi, ssid: event.target.value })
+                  }
+                />
+                <select
+                  aria-label="Защита Wi-Fi"
+                  value={wifi.security}
+                  onChange={(event) =>
+                    setWifi({
+                      ...wifi,
+                      security: event.target.value as "WPA" | "WEP" | "nopass",
+                    })
+                  }
+                >
+                  <option value="WPA">WPA/WPA2</option>
+                  <option value="WEP">WEP</option>
+                  <option value="nopass">Без пароля</option>
+                </select>
+                {wifi.security !== "nopass" && (
+                  <input
+                    aria-label="Пароль Wi-Fi"
+                    type="password"
+                    placeholder="Пароль Wi‑Fi"
+                    value={wifi.password}
+                    onChange={(event) =>
+                      setWifi({ ...wifi, password: event.target.value })
+                    }
+                  />
+                )}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={createWifiQr}
+                  disabled={!wifi.ssid.trim() || pending === "wifi"}
+                >
+                  Создать QR Wi‑Fi
+                </button>
+              </div>
+            </details>
             {snapshot.room.access_mode === "invitation" && (
               <div className="stack compact">
                 <button className="secondary" onClick={createInvitation}>

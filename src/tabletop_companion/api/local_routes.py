@@ -56,6 +56,7 @@ from tabletop_companion.api.schemas import (
     SessionTransitionRequest,
     SnapshotView,
     StartCharacterDraftRequest,
+    WifiQrRequest,
 )
 from tabletop_companion.application.combat_service import CombatService
 from tabletop_companion.application.commands import (
@@ -99,6 +100,7 @@ from tabletop_companion.config import Settings
 from tabletop_companion.domain.access import DeviceRole, LocalDevice
 from tabletop_companion.domain.errors import (
     AuthenticationError,
+    DomainValidationError,
     PermissionDeniedError,
     RateLimitError,
     UnsupportedEventVersionError,
@@ -154,6 +156,13 @@ def _qr_data_url(value: str) -> str:
     image.save(stream)
     encoded = base64.b64encode(stream.getvalue()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
+
+
+def _wifi_qr_payload(ssid: str, security: str, password: str) -> str:
+    def escaped(value: str) -> str:
+        return value.replace("\\", "\\\\").replace(";", "\\;").replace(":", "\\:")
+
+    return f"WIFI:T:{security};S:{escaped(ssid)};P:{escaped(password)};;"
 
 
 def _client_key(request: Request, action: str) -> str:
@@ -281,6 +290,20 @@ def register_local_routes(
         )
         await _publish(hub, outcome)
         return _command_response(outcome)
+
+    @app.post("/api/v2/rooms/{room_id}/wifi-qr", tags=["pairing"])
+    async def wifi_qr(
+        room_id: UUID, payload: WifiQrRequest, current: CurrentDevice
+    ) -> dict[str, str]:
+        if current.role is not DeviceRole.GM or current.room_id != str(room_id):
+            raise PermissionDeniedError("A GM device for this room is required.")
+        if payload.security != "nopass" and not payload.password:
+            raise DomainValidationError("A password is required for a protected Wi-Fi network.")
+        return {
+            "qr_data_url": _qr_data_url(
+                _wifi_qr_payload(payload.ssid, payload.security, payload.password)
+            )
+        }
 
     @app.delete(
         "/api/v2/rooms/{room_id}/pairing/{invitation_id}",

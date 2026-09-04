@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from io import BytesIO
+from pathlib import Path
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Request, status
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 from tabletop_companion.api.local_routes import (
@@ -37,12 +40,14 @@ from tabletop_companion.application.combat_commands import (
 )
 from tabletop_companion.application.combat_service import CombatService
 from tabletop_companion.application.service import CommandOutcome
+from tabletop_companion.domain.access import DeviceRole
 from tabletop_companion.domain.combat import (
     HealthActionType,
     RollMode,
     RollSelection,
     RollVisibility,
 )
+from tabletop_companion.domain.errors import DomainValidationError, PermissionDeniedError
 
 
 class CreateCombatRequest(CommandRequest):
@@ -168,6 +173,42 @@ def _targets(values: list[HealthTargetRequest]) -> tuple[HealthTargetCommand, ..
 
 
 def register_combat_routes(app: FastAPI, service: CombatService, hub: EventHub) -> None:
+    @app.post("/api/v2/rooms/{room_id}/media", tags=["media"])
+    async def upload_media(
+        room_id: UUID, request: Request, current: CurrentDevice
+    ) -> dict[str, str]:
+        if current.role is not DeviceRole.GM or current.room_id != str(room_id):
+            raise PermissionDeniedError("A GM device for this room is required.")
+        extension = Path(request.headers.get("X-Upload-Filename", "")).suffix.lower()
+        if extension not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+            raise DomainValidationError("Unsupported image format.", code="unsupported_image")
+        if request.headers.get("content-type") not in {
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif",
+        }:
+            raise DomainValidationError("Unsupported image content type.", code="unsupported_image")
+        content = await request.body()
+        if not content or len(content) > 8 * 1024 * 1024:
+            raise DomainValidationError(
+                "Image must be between 1 byte and 8 MB.", code="invalid_image"
+            )
+        try:
+            with Image.open(BytesIO(content)) as image:
+                image.verify()
+        except (SyntaxError, UnidentifiedImageError, OSError):
+            raise DomainValidationError(
+                "The uploaded file is not a valid image.", code="invalid_image"
+            ) from None
+        media_root: Path = app.state.settings.media_library
+        filename = f"{uuid4().hex}{extension}"
+        target = (media_root / filename).resolve()
+        if media_root.resolve() not in target.parents:
+            raise PermissionDeniedError("Invalid media path.")
+        target.write_bytes(content)
+        return {"url": f"/media/{filename}"}
+
     @app.get("/api/v2/me/combat", tags=["combat"])
     async def get_combat(current: CurrentDevice) -> dict[str, Any] | None:
         return service.snapshot(current)

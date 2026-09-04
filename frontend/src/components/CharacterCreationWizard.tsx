@@ -93,7 +93,7 @@ export function CharacterCreationWizard({
     "Класс",
     "Раса",
     "Варианты расы",
-    "Метод характеристик",
+    "Настройка характеристик",
     "Характеристики",
     "Предыстория",
   ];
@@ -149,13 +149,6 @@ export function CharacterCreationWizard({
   return (
     <section className="card stack character-wizard">
       <p className="eyebrow">СОЗДАНИЕ ПЕРСОНАЖА · {steps[step]}</p>
-      <div className="wizard-progress">
-        {steps.map((label, index) => (
-          <span className={index <= step ? "active" : ""} key={label}>
-            {index + 1}
-          </span>
-        ))}
-      </div>
       <ErrorNotice error={error} />
       {step === 0 && (
         <label>
@@ -168,7 +161,7 @@ export function CharacterCreationWizard({
         </label>
       )}
       {step === 1 && (
-        <div className="option-list">
+        <div className="class-choice-table">
           {classCatalog.map((item) => (
             <button
               className={
@@ -178,15 +171,15 @@ export function CharacterCreationWizard({
               key={item.id}
             >
               <strong>{item.name}</strong>
-              <small>
-                {item.theme} · {item.primary_stat} · {item.difficulty}
-              </small>
+              <small>{item.theme}</small>
+              <small>Главное: {item.primary_stat}</small>
+              <small>Сложность: {item.difficulty}</small>
             </button>
           ))}
         </div>
       )}
       {step === 2 && (
-        <div className="option-list">
+        <div className="race-choice-grid">
           {speciesCatalog.map((item) => (
             <button
               className={
@@ -437,12 +430,44 @@ function Choice({
       <select value={value} onChange={(event) => onChange(event.target.value)}>
         {values.map((item) => (
           <option value={item} key={item}>
-            {item}
+            {choiceLabel(item)}
           </option>
         ))}
       </select>
     </label>
   );
+}
+
+function choiceLabel(value: string) {
+  const labels: Record<string, string> = {
+    small: "Маленький",
+    medium: "Средний",
+    forest: "Лесной",
+    rock: "Скальный",
+    high: "Высший",
+    drow: "Дроу",
+    wood: "Лесной",
+    intelligence: "Интеллект",
+    wisdom: "Мудрость",
+    charisma: "Харизма",
+    perception: "Внимательность",
+    survival: "Выживание",
+    insight: "Проницательность",
+    athletics: "Атлетика",
+    arcana: "Магия",
+    stealth: "Скрытность",
+    white: "Белое",
+    bronze: "Бронзовое",
+    green: "Зелёное",
+    gold: "Золотое",
+    red: "Красное",
+    brass: "Латунное",
+    copper: "Медное",
+    silver: "Серебряное",
+    blue: "Синее",
+    black: "Чёрное",
+  };
+  return labels[value] ?? value;
 }
 
 function Spellcasting({

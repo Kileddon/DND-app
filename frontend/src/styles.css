@@ -11,6 +11,9 @@
   --gold-dark: #8d6226;
   --danger: #ef7a72;
   --success: #70c79d;
+  --space-1: 0.5rem;
+  --space-2: 0.75rem;
+  --space-3: 1rem;
 }
 
 * {
@@ -22,6 +25,12 @@ body {
   min-height: 100vh;
   background:
     radial-gradient(circle at 15% -10%, #30271f 0, transparent 38%), #11131a;
+}
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 button,
 input {
@@ -751,6 +760,128 @@ textarea {
     border-right: 0;
     padding-bottom: 1rem;
     padding-right: 0;
+  }
+}
+
+/* Shared compact/mobile constraints for dashboard sections. */
+.dashboard-nav {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.class-choice-table {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.class-choice-table button {
+  min-height: 7.5rem;
+  text-align: left;
+}
+.race-choice-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 700px) {
+  .class-choice-table,
+  .race-choice-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.dashboard-nav::after {
+  content: "";
+  min-width: var(--space-1);
+}
+.dashboard-nav button {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+.host-dashboard .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin-top: 0.3rem;
+}
+.device-list {
+  max-height: calc(4 * 4.5rem);
+  overflow-y: auto;
+}
+.combat-journal {
+  max-height: calc(5 * 4.25rem);
+  overflow-y: auto;
+}
+.roll-history {
+  max-height: calc(6 * 3.25rem);
+  overflow-y: auto;
+}
+.pairing-steps {
+  align-items: start;
+}
+.pairing-steps > div {
+  display: grid;
+  gap: var(--space-1);
+}
+.pairing-steps img {
+  max-width: 160px;
+  width: 100%;
+  height: auto;
+}
+.wifi-settings summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.monster-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.monster-preview img {
+  width: 44px;
+  height: 44px;
+  border-radius: 0.5rem;
+  object-fit: cover;
+}
+.humanoid {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.equipment-hotspot {
+  font-size: 0.72rem;
+  min-height: 32px;
+  padding: 0.25rem 0.5rem;
+}
+.equipment-picker {
+  align-items: center;
+  background: rgba(12, 14, 20, 0.94);
+  border: 1px solid var(--gold);
+  border-radius: 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-2);
+}
+.upload-control input {
+  min-height: auto;
+  padding: 0.25rem;
+}
+
+@media (max-width: 700px) {
+  .dashboard {
+    padding: var(--space-2);
+  }
+  .dashboard-nav {
+    width: calc(100% + 1.5rem);
+    margin-inline: -0.75rem;
+    padding-inline: 0.75rem;
+    border-radius: 0;
+  }
+  .pairing-steps {
+    grid-template-columns: 1fr;
   }
 }
 

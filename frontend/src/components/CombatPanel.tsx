@@ -140,6 +140,14 @@ export function HostCombatPanel({
     });
   }
 
+  async function uploadMonsterImage(file: File) {
+    await run("image", async () => {
+      const response = await api.uploadMedia(snapshot.room.id, file);
+      setMonsterImage(response.url);
+      return response;
+    });
+  }
+
   async function health(
     action: "damage" | "healing" | "temporary_hp" | "prevention",
   ) {
@@ -347,6 +355,26 @@ export function HostCombatPanel({
                 value={monsterImage}
                 onChange={(event) => setMonsterImage(event.target.value)}
               />
+              <label className="upload-control">
+                Загрузить изображение с компьютера
+                <input
+                  aria-label="Загрузить изображение с компьютера"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void uploadMonsterImage(file);
+                  }}
+                />
+              </label>
+              {monsterImage && (
+                <div className="monster-preview">
+                  <img src={monsterImage} alt="Миниатюра сущности" />
+                  <button type="button" onClick={() => setMonsterImage("")}>
+                    Удалить изображение
+                  </button>
+                </div>
+              )}
               <textarea
                 aria-label="Способности монстра"
                 placeholder="Способности"

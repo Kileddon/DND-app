@@ -352,10 +352,13 @@ export function commandMeta(deviceId = installationId()) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const isFormData = init?.body instanceof FormData;
   const response = await fetch(path, {
     ...init,
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: isFormData
+      ? init?.headers
+      : { "Content-Type": "application/json", ...init?.headers },
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as ApiErrorBody;
@@ -412,6 +415,28 @@ export const api = {
         role,
       }),
     }),
+  createWifiQr: (
+    roomId: string,
+    input: {
+      ssid: string;
+      security: "WPA" | "WEP" | "nopass";
+      password: string;
+    },
+  ) =>
+    request<{ qr_data_url: string }>(`/api/v2/rooms/${roomId}/wifi-qr`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  uploadMedia: (roomId: string, file: File) => {
+    return request<{ url: string }>(`/api/v2/rooms/${roomId}/media`, {
+      method: "POST",
+      body: file,
+      headers: {
+        "Content-Type": file.type,
+        "X-Upload-Filename": file.name,
+      },
+    });
+  },
   revokePairing: (roomId: string, invitationId: string, deviceId: string) =>
     request<CommandResponse<{ revoked: number }>>(
       `/api/v2/rooms/${roomId}/pairing/${invitationId}`,

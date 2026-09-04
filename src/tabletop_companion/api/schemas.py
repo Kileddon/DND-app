@@ -260,6 +260,12 @@ class PairingCreateRequest(CommandRequest):
     role: DeviceRole = DeviceRole.PLAYER
 
 
+class WifiQrRequest(BaseModel):
+    ssid: str = Field(min_length=1, max_length=128)
+    security: str = Field(default="WPA", pattern="^(WPA|WEP|nopass)$")
+    password: str = Field(default="", max_length=128)
+
+
 class PairingExchangeRequest(CommandRequest):
     token: str | None = Field(default=None, min_length=8, max_length=256)
     short_code: str | None = Field(default=None, min_length=6, max_length=16)

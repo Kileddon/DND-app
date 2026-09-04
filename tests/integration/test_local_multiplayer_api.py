@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from starlette.websockets import WebSocketDisconnect
 
 from tabletop_companion.api.app import create_app
@@ -29,6 +31,7 @@ def settings(database_url: str, tmp_path: Path) -> Settings:
         log_level="WARNING",
         host_secret_path=tmp_path / "host-secret.key",
         frontend_dist=tmp_path / "missing-frontend",
+        media_library=tmp_path / "media",
     )
 
 
@@ -106,6 +109,41 @@ def create_profile(
         201,
     )["data"]
     return cast(dict[str, Any], result)
+
+
+def test_gm_can_create_private_wifi_qr_and_upload_a_valid_monster_image(
+    database_url: str, tmp_path: Path
+) -> None:
+    app_settings = settings(database_url, tmp_path)
+    app = create_app(app_settings, sampler=first_cards)
+    with TestClient(app) as client:
+        room, _gm_id, gm_credential = bootstrap(client)
+        headers = {"Authorization": f"Bearer {gm_credential}"}
+        password = "never-in-a-response"
+        wifi = client.post(
+            f"/api/v2/rooms/{room['id']}/wifi-qr",
+            headers=headers,
+            json={"ssid": "Tabletop LAN", "security": "WPA", "password": password},
+        )
+        wifi_data = body(wifi)
+        assert wifi_data["qr_data_url"].startswith("data:image/png;base64,")
+        assert password not in wifi.text
+        assert password not in str(app.state.safe_errors.snapshot())
+
+        image_stream = BytesIO()
+        Image.new("RGB", (1, 1), "green").save(image_stream, format="PNG")
+        uploaded = client.post(
+            f"/api/v2/rooms/{room['id']}/media",
+            content=image_stream.getvalue(),
+            headers={
+                **headers,
+                "Content-Type": "image/png",
+                "X-Upload-Filename": "goblin.png",
+            },
+        )
+        image_url = body(uploaded)["url"]
+        assert image_url.startswith("/media/")
+        assert client.get(image_url).status_code == 200
 
 
 def test_pairing_profile_snapshot_and_session_restart(database_url: str, tmp_path: Path) -> None:

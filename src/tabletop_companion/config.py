@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     host_secret_path: Path = Path("data/host-secret.key")
     frontend_dist: Path = Path("frontend/dist")
+    media_library: Path = Path("data/media")
     websocket_room_limit: int = Field(default=60, ge=1, le=500)
     websocket_device_limit: int = Field(default=3, ge=1, le=20)
     websocket_queue_size: int = Field(default=128, ge=8, le=4096)
