@@ -12,9 +12,10 @@ import { CharacterCreationWizard } from "./CharacterCreationWizard";
 import { CharacterSheet } from "./CharacterSheet";
 import { DicePanel } from "./DicePanel";
 import { ErrorNotice } from "./ErrorNotice";
+import { PlayerNotesPanel } from "./PlayerNotesPanel";
 import { abilityModifierValue } from "../viewRules";
 
-type PlayerSection = "lobby" | "character" | "dice";
+type PlayerSection = "lobby" | "character" | "dice" | "notes";
 
 export function PlayerDashboard({
   snapshot,
@@ -48,12 +49,31 @@ export function PlayerDashboard({
     api.characterOptions().then(setOptions).catch(setError);
   }, []);
   useEffect(() => {
-    if (player.selected_character_id)
+    if (player.selected_character_id) {
       api
         .character(player.selected_character_id)
         .then(setCharacter)
         .catch(setError);
+    }
   }, [player.selected_character_id, snapshot.cursor]);
+
+  async function beginCreating() {
+    setPending(true);
+    setError(undefined);
+    try {
+      if (player.selected_character_id) {
+        await api.clearCharacterSelection(snapshot.current_device_id, player);
+      }
+      setCharacter(undefined);
+      setDraft(undefined);
+      setCreating(true);
+      refresh();
+    } catch (reason) {
+      setError(reason);
+    } finally {
+      setPending(false);
+    }
+  }
 
   async function choose(cardId: string) {
     if (!draft) return;
@@ -144,6 +164,7 @@ export function PlayerDashboard({
             ["lobby", "Лобби"],
             ["character", "Персонаж"],
             ["dice", "Кубики"],
+            ["notes", "Заметки"],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -172,6 +193,7 @@ export function PlayerDashboard({
       {section === "dice" && (
         <DicePanel snapshot={snapshot} refresh={refresh} />
       )}
+      {section === "notes" && <PlayerNotesPanel snapshot={snapshot} />}
       {cabinetOpen && !draft && !creating && (
         <section
           className="card stack span-2 cabinet-panel"
@@ -181,7 +203,11 @@ export function PlayerDashboard({
           <div className="section-heading">
             <h2>Мои персонажи</h2>
             <div className="inline-actions">
-              <button className="primary" onClick={() => setCreating(true)}>
+              <button
+                className="primary"
+                disabled={pending}
+                onClick={() => void beginCreating()}
+              >
                 Создать нового
               </button>
               <button onClick={() => setCabinetOpen(false)}>Закрыть</button>
@@ -271,22 +297,33 @@ export function PlayerDashboard({
           )}
         </section>
       )}
-      {section === "character" && character && options && (
-        <CharacterSheet
-          snapshot={snapshot}
-          initial={character}
-          options={options}
-          onRefresh={refresh}
-        />
-      )}
-      {section === "character" && !character && (
-        <section className="card stack">
-          <h2>Персонаж не выбран</h2>
-          <button className="primary" onClick={() => setCabinetOpen(true)}>
-            Открыть личный кабинет
-          </button>
-        </section>
-      )}
+      {section === "character" &&
+        player.selected_character_id === character?.id &&
+        options &&
+        !creating &&
+        !draft && (
+          <CharacterSheet
+            snapshot={snapshot}
+            initial={character}
+            options={options}
+            onRefresh={refresh}
+            onArchived={() => {
+              setCharacter(undefined);
+              setCabinetOpen(true);
+            }}
+          />
+        )}
+      {section === "character" &&
+        !player.selected_character_id &&
+        !creating &&
+        !draft && (
+          <section className="card stack">
+            <h2>Персонаж не выбран</h2>
+            <button className="primary" onClick={() => setCabinetOpen(true)}>
+              Открыть личный кабинет
+            </button>
+          </section>
+        )}
     </main>
   );
 }

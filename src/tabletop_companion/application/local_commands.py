@@ -72,6 +72,27 @@ class SelectCharacterCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ClearCharacterSelectionCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    player_id: str
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateOwnCharacterHealthCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    player_id: str
+    character_id: str
+    current_hp: int
+    temporary_hp: int
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
 class CreateRoomInvitationCommand:
     command_id: str
     device_id: str
@@ -244,6 +265,29 @@ class DeleteNpcNoteCommand:
     room_id: str
     actor_id: str
     npc_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CreatePlayerNoteNodeCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    player_id: str
+    kind: str
+    name: str
+    parent_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UpdatePlayerNoteNodeCommand:
+    command_id: str
+    device_id: str
+    client_time: str | None
+    player_id: str
+    node_id: str
+    name: str
+    body: str
+    expected_version: int
 
 
 @dataclass(frozen=True, slots=True)

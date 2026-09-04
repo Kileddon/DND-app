@@ -83,6 +83,16 @@ class ConfirmCharacterDraftRequest(CommandRequest):
     expected_version: int = Field(ge=1)
 
 
+class ClearCharacterSelectionRequest(CommandRequest):
+    expected_version: int = Field(ge=1)
+
+
+class CharacterHealthUpdateRequest(CommandRequest):
+    current_hp: int = Field(ge=0, le=100000)
+    temporary_hp: int = Field(ge=0, le=100000)
+    expected_version: int = Field(ge=1)
+
+
 class AddInventoryItemRequest(CommandRequest):
     actor_id: UUID
     name: str = Field(min_length=1, max_length=120)
@@ -336,6 +346,18 @@ class NpcNoteCreateRequest(CommandRequest):
 class NpcNoteUpdateRequest(CommandRequest):
     name: str = Field(min_length=1, max_length=120)
     details: str = Field(max_length=20000)
+    expected_version: int = Field(ge=1)
+
+
+class PlayerNoteNodeCreateRequest(CommandRequest):
+    kind: str = Field(pattern="^(folder|note)$")
+    name: str = Field(min_length=1, max_length=120)
+    parent_id: UUID | None = None
+
+
+class PlayerNoteNodeUpdateRequest(CommandRequest):
+    name: str = Field(min_length=1, max_length=120)
+    body: str = Field(default="", max_length=50000)
     expected_version: int = Field(ge=1)
 
 

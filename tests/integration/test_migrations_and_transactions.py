@@ -52,11 +52,11 @@ def test_migrations_apply_to_empty_database(database_url: str) -> None:
             "event_compensations",
             "gm_notes",
             "npc_notes",
+            "player_note_nodes",
         } <= table_names
         with engine.connect() as connection:
             assert (
-                MigrationContext.configure(connection).get_current_revision()
-                == "0007_character_overhaul"
+                MigrationContext.configure(connection).get_current_revision() == "0008_player_notes"
             )
     finally:
         engine.dispose()

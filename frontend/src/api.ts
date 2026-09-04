@@ -263,6 +263,18 @@ export interface GmNotes {
   npcs: NpcNote[];
 }
 
+export interface PlayerNoteNode {
+  id: string;
+  room_id: string;
+  player_id: string;
+  parent_id: string | null;
+  kind: "folder" | "note";
+  name: string;
+  body: string;
+  depth: number;
+  version: number;
+}
+
 export interface Snapshot {
   cursor: number;
   room: Room;
@@ -577,6 +589,32 @@ export const api = {
         }),
       },
     ),
+  clearCharacterSelection: (deviceId: string, player: Player) =>
+    request<CommandResponse<Player>>("/api/v2/me/character-selection", {
+      method: "DELETE",
+      body: JSON.stringify({
+        ...commandMeta(deviceId),
+        expected_version: player.version,
+      }),
+    }),
+  updateOwnCharacterHealth: (
+    deviceId: string,
+    character: Character,
+    currentHp: number,
+    temporaryHp: number,
+  ) =>
+    request<CommandResponse<Character>>(
+      `/api/v2/me/characters/${character.id}/health`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          ...commandMeta(deviceId),
+          current_hp: currentHp,
+          temporary_hp: temporaryHp,
+          expected_version: character.version,
+        }),
+      },
+    ),
   character: (id: string) => request<Character>(`/api/v2/characters/${id}`),
   kickPlayer: (roomId: string, playerId: string, deviceId: string) =>
     request<CommandResponse<{ player_id: string; device_ids: string[] }>>(
@@ -691,6 +729,32 @@ export const api = {
       `/api/v2/rooms/${roomId}/notes/npcs/${npcId}`,
       { method: "DELETE", body: JSON.stringify(commandMeta(deviceId)) },
     ),
+  playerNotes: () => request<{ nodes: PlayerNoteNode[] }>("/api/v2/me/notes"),
+  createPlayerNoteNode: (
+    deviceId: string,
+    kind: PlayerNoteNode["kind"],
+    name: string,
+    parentId: string | null,
+  ) =>
+    request<CommandResponse<PlayerNoteNode>>("/api/v2/me/notes", {
+      method: "POST",
+      body: JSON.stringify({
+        ...commandMeta(deviceId),
+        kind,
+        name,
+        parent_id: parentId,
+      }),
+    }),
+  updatePlayerNoteNode: (deviceId: string, node: PlayerNoteNode) =>
+    request<CommandResponse<PlayerNoteNode>>(`/api/v2/me/notes/${node.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...commandMeta(deviceId),
+        name: node.name,
+        body: node.body,
+        expected_version: node.version,
+      }),
+    }),
   addItem: (
     deviceId: string,
     playerId: string,

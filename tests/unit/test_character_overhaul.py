@@ -146,3 +146,15 @@ def test_character_equipment_slot_conflict_and_archive_guard() -> None:
     with pytest.raises(StateConflictError) as error:
         character.archive(now=now, expected_version=2, active_encounter=True)
     assert error.value.code == "character_in_active_encounter"
+
+
+def test_character_owner_can_edit_health_values() -> None:
+    now = datetime.now(UTC)
+    character = Character(
+        "c", "d", "r", "p", "Герой", "simple-v1", standard_stats("fighter"), [], 1, now
+    )
+    character.max_hp = 12
+    character.edit_health(current_hp=7, temporary_hp=3, expected_version=1)
+    assert (character.current_hp, character.temporary_hp, character.version) == (7, 3, 2)
+    with pytest.raises(DomainValidationError):
+        character.edit_health(current_hp=13, temporary_hp=0, expected_version=2)

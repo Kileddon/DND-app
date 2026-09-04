@@ -153,6 +153,35 @@ test("GM and player complete the local multiplayer slice", async ({
   await player.getByRole("button", { name: "Удалить 1" }).click();
   await expect(player.getByText("Инвентарь пуст.")).toBeVisible();
 
+  await player.getByRole("button", { name: "Заметки", exact: true }).click();
+  await player.getByRole("button", { name: "Создать каталог" }).click();
+  await player.getByLabel("Название каталога").fill("Кампания");
+  await player.getByRole("button", { name: "Создать", exact: true }).click();
+  const folder = player
+    .locator(".player-note-folder")
+    .filter({ hasText: "Кампания" });
+  await folder.getByRole("button", { name: "Создать заметку" }).click();
+  await player.getByLabel("Название заметки").fill("Зацепки");
+  await player.getByRole("button", { name: "Создать", exact: true }).click();
+  await player.getByRole("button", { name: "Редактировать" }).click();
+  await player
+    .getByLabel("Текст заметки")
+    .fill("След ведёт в башню.\nПроверить ворота.");
+  await player.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await player.getByRole("button", { name: "Зацепки", exact: true }).click();
+  await expect(player.getByText("След ведёт в башню.")).toBeVisible();
+  await expect
+    .poll(() =>
+      player.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    )
+    .toBe(true);
+  await player.screenshot({
+    path: "test-results/corrective-visual/player-notes-390.png",
+    fullPage: true,
+  });
+
   await page.getByRole("button", { name: "Лобби", exact: true }).click();
   await page.getByRole("button", { name: "Завершить сессию" }).click();
   await expect(page.getByText("Нет активной")).toBeVisible();

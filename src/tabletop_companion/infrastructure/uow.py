@@ -48,6 +48,7 @@ from tabletop_companion.domain.models import (
     ItemDefinition,
     LocalPlayer,
     NpcNote,
+    PlayerNoteNode,
     Room,
 )
 from tabletop_companion.domain.sessions import GameSession, SessionStatus
@@ -71,6 +72,7 @@ from tabletop_companion.infrastructure.tables import (
     MonsterTemplateRecord,
     NpcNoteRecord,
     PairingInvitationRecord,
+    PlayerNoteNodeRecord,
     ProcessedCommandRecord,
     RoomInvitationRecord,
     RoomRecord,
@@ -563,6 +565,62 @@ class SqlAlchemyUnitOfWork:
 
     def delete_npc_note(self, npc_id: str) -> None:
         self._session.execute(delete(NpcNoteRecord).where(NpcNoteRecord.id == npc_id))
+
+    def list_player_note_nodes(self, player_id: str) -> list[PlayerNoteNode]:
+        records = self._session.scalars(
+            select(PlayerNoteNodeRecord)
+            .where(PlayerNoteNodeRecord.player_id == player_id)
+            .order_by(
+                PlayerNoteNodeRecord.depth,
+                PlayerNoteNodeRecord.kind,
+                PlayerNoteNodeRecord.name,
+                PlayerNoteNodeRecord.id,
+            )
+        ).all()
+        return [self._player_note_node(record) for record in records]
+
+    def get_player_note_node(self, node_id: str) -> PlayerNoteNode:
+        record = self._session.get(PlayerNoteNodeRecord, node_id)
+        if record is None:
+            raise EntityNotFoundError(
+                "Player note node was not found.", details={"node_id": node_id}
+            )
+        return self._player_note_node(record)
+
+    def add_player_note_node(self, node: PlayerNoteNode) -> None:
+        self._session.add(
+            PlayerNoteNodeRecord(
+                id=node.id,
+                room_id=node.room_id,
+                player_id=node.player_id,
+                parent_id=node.parent_id,
+                kind=node.kind,
+                name=node.name,
+                body=node.body,
+                depth=node.depth,
+                version=node.version,
+                created_at=node.created_at.isoformat(),
+                updated_at=node.updated_at.isoformat(),
+            )
+        )
+
+    def save_player_note_node(self, node: PlayerNoteNode) -> None:
+        updated_id = self._session.scalar(
+            update(PlayerNoteNodeRecord)
+            .where(
+                PlayerNoteNodeRecord.id == node.id,
+                PlayerNoteNodeRecord.version == node.version - 1,
+            )
+            .values(
+                name=node.name,
+                body=node.body,
+                version=node.version,
+                updated_at=node.updated_at.isoformat(),
+            )
+            .returning(PlayerNoteNodeRecord.id)
+        )
+        if updated_id is None:
+            raise StateConflictError("Player note changed concurrently.")
 
     def add_pairing_invitation(self, invitation: PairingInvitation) -> None:
         self._session.add(
@@ -1164,6 +1222,22 @@ class SqlAlchemyUnitOfWork:
             room_id=record.room_id,
             name=record.name,
             details=record.details,
+            version=record.version,
+            created_at=datetime.fromisoformat(record.created_at),
+            updated_at=datetime.fromisoformat(record.updated_at),
+        )
+
+    @staticmethod
+    def _player_note_node(record: PlayerNoteNodeRecord) -> PlayerNoteNode:
+        return PlayerNoteNode(
+            id=record.id,
+            room_id=record.room_id,
+            player_id=record.player_id,
+            parent_id=record.parent_id,
+            kind=record.kind,
+            name=record.name,
+            body=record.body,
+            depth=record.depth,
             version=record.version,
             created_at=datetime.fromisoformat(record.created_at),
             updated_at=datetime.fromisoformat(record.updated_at),

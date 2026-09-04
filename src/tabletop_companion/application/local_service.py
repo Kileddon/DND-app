@@ -11,8 +11,10 @@ from uuid import uuid4
 from tabletop_companion.application.fingerprints import command_fingerprint
 from tabletop_companion.application.local_commands import (
     BootstrapRoomCommand,
+    ClearCharacterSelectionCommand,
     CreateNpcNoteCommand,
     CreatePairingCommand,
+    CreatePlayerNoteNodeCommand,
     CreateProfileCommand,
     CreateRoomInvitationCommand,
     CreateSessionCommand,
@@ -31,6 +33,8 @@ from tabletop_companion.application.local_commands import (
     UpdateCharacterCommand,
     UpdateGmNotesCommand,
     UpdateNpcNoteCommand,
+    UpdateOwnCharacterHealthCommand,
+    UpdatePlayerNoteNodeCommand,
 )
 from tabletop_companion.application.local_ports import LocalMultiplayerUnitOfWork
 from tabletop_companion.application.ports import ProcessedCommand
@@ -72,6 +76,7 @@ from tabletop_companion.domain.models import (
     ItemDefinition,
     LocalPlayer,
     NpcNote,
+    PlayerNoteNode,
     Room,
 )
 from tabletop_companion.domain.rules import SimpleRuleset
@@ -416,6 +421,83 @@ class LocalMultiplayerService:
             return self._player_data(updated)
 
         return self._execute("select_character", command, command.player_id, operation)
+
+    def clear_character_selection(
+        self, command: ClearCharacterSelectionCommand, principal: LocalDevice
+    ) -> CommandOutcome:
+        self._ensure_player(principal, command.player_id)
+
+        def operation(uow: LocalMultiplayerUnitOfWork) -> ResultData:
+            player = uow.get_local_player(command.player_id)
+            if player.version != command.expected_version:
+                raise StateConflictError(
+                    "Player profile version is stale.",
+                    details={
+                        "expected_version": command.expected_version,
+                        "current_version": player.version,
+                        "current_state": self._player_data(player),
+                    },
+                )
+            updated = replace(
+                player,
+                selected_character_id=None,
+                version=player.version + 1,
+                updated_at=self._clock(),
+            )
+            uow.save_local_player(updated)
+            uow.add_event(
+                self._event(
+                    event_type="CharacterSelectionCleared",
+                    aggregate_type="local_player",
+                    aggregate_id=player.id,
+                    room_id=player.room_id,
+                    actor_id=player.id,
+                    command_id=command.command_id,
+                    payload={"character_id": player.selected_character_id},
+                )
+            )
+            return self._player_data(updated)
+
+        return self._execute("clear_character_selection", command, command.player_id, operation)
+
+    def update_own_character_health(
+        self, command: UpdateOwnCharacterHealthCommand, principal: LocalDevice
+    ) -> CommandOutcome:
+        self._ensure_player(principal, command.player_id)
+
+        def operation(uow: LocalMultiplayerUnitOfWork) -> ResultData:
+            player = uow.get_local_player(command.player_id)
+            character = uow.get_character(command.character_id)
+            if character.account_id != (player.account_id or player.id):
+                raise PermissionDeniedError("The player does not control this character.")
+            if not uow.is_character_assigned(character.id, principal.room_id):
+                raise PermissionDeniedError("Character does not belong to this room.")
+            character.edit_health(
+                current_hp=command.current_hp,
+                temporary_hp=command.temporary_hp,
+                expected_version=command.expected_version,
+            )
+            uow.save_character(character)
+            uow.add_event(
+                self._event(
+                    event_type="CharacterHealthEdited",
+                    aggregate_type="character",
+                    aggregate_id=character.id,
+                    room_id=principal.room_id,
+                    actor_id=player.id,
+                    command_id=command.command_id,
+                    payload={
+                        "character_id": character.id,
+                        "current_hp": character.current_hp,
+                        "temporary_hp": character.temporary_hp,
+                        "version": character.version,
+                    },
+                    visibility="room",
+                )
+            )
+            return self._character_data(character)
+
+        return self._execute("update_own_character_health", command, command.player_id, operation)
 
     def create_room_invitation(
         self, command: CreateRoomInvitationCommand, principal: LocalDevice
@@ -1018,6 +1100,117 @@ class LocalMultiplayerService:
 
         return self._execute("delete_npc_note", command, command.actor_id, operation)
 
+    def get_player_notes(self, principal: LocalDevice) -> ResultData:
+        if principal.player_id is None:
+            raise PermissionDeniedError("Player profile is required.")
+        with self._uow_factory() as uow:
+            return {
+                "nodes": [
+                    self._player_note_data(node)
+                    for node in uow.list_player_note_nodes(principal.player_id)
+                ]
+            }
+
+    def create_player_note_node(
+        self, command: CreatePlayerNoteNodeCommand, principal: LocalDevice
+    ) -> CommandOutcome:
+        self._ensure_player(principal, command.player_id)
+
+        def operation(uow: LocalMultiplayerUnitOfWork) -> ResultData:
+            kind = command.kind.strip().lower()
+            name = command.name.strip()
+            if kind not in {"folder", "note"} or not name or len(name) > 120:
+                raise DomainValidationError("Player note node is invalid.")
+            parent = None
+            if command.parent_id is not None:
+                parent = uow.get_player_note_node(command.parent_id)
+                if parent.player_id != command.player_id or parent.kind != "folder":
+                    raise PermissionDeniedError("Parent folder is unavailable.")
+            depth = (
+                (parent.depth + 1)
+                if kind == "folder" and parent
+                else (1 if kind == "folder" else 0)
+            )
+            if kind == "note" and parent:
+                depth = parent.depth
+            if kind == "folder" and depth > 3:
+                raise DomainValidationError(
+                    "Folder nesting is limited to three levels.", code="folder_depth_limit"
+                )
+            existing = uow.list_player_note_nodes(command.player_id)
+            if (
+                kind == "note"
+                and sum(
+                    node.kind == "note" and node.parent_id == command.parent_id for node in existing
+                )
+                >= 50
+            ):
+                raise DomainValidationError(
+                    "A folder can contain at most 50 notes.", code="folder_note_limit"
+                )
+            now = self._clock()
+            node = PlayerNoteNode(
+                id=self._id_factory(),
+                room_id=principal.room_id,
+                player_id=command.player_id,
+                parent_id=command.parent_id,
+                kind=kind,
+                name=name,
+                body="",
+                depth=depth,
+                version=1,
+                created_at=now,
+                updated_at=now,
+            )
+            uow.add_player_note_node(node)
+            uow.add_event(
+                self._event(
+                    event_type="PlayerNoteNodeCreated",
+                    aggregate_type="player_note_node",
+                    aggregate_id=node.id,
+                    room_id=principal.room_id,
+                    actor_id=command.player_id,
+                    command_id=command.command_id,
+                    payload={"node_id": node.id, "kind": node.kind},
+                    visibility=f"player:{command.player_id}",
+                )
+            )
+            return self._player_note_data(node)
+
+        return self._execute("create_player_note_node", command, command.player_id, operation)
+
+    def update_player_note_node(
+        self, command: UpdatePlayerNoteNodeCommand, principal: LocalDevice
+    ) -> CommandOutcome:
+        self._ensure_player(principal, command.player_id)
+
+        def operation(uow: LocalMultiplayerUnitOfWork) -> ResultData:
+            node = uow.get_player_note_node(command.node_id)
+            if node.player_id != command.player_id:
+                raise PermissionDeniedError("Player note is unavailable.")
+            node.edit(
+                name=command.name,
+                body=command.body,
+                expected_version=command.expected_version,
+                now=self._clock(),
+            )
+            uow.save_player_note_node(node)
+            uow.add_event(
+                self._event(
+                    event_type="PlayerNoteNodeUpdated",
+                    aggregate_type="player_note_node",
+                    aggregate_id=node.id,
+                    room_id=principal.room_id,
+                    actor_id=command.player_id,
+                    command_id=command.command_id,
+                    payload={"node_id": node.id, "version": node.version},
+                    visibility=f"player:{command.player_id}",
+                )
+            )
+            return self._player_note_data(node)
+
+        return self._execute("update_player_note_node", command, command.player_id, operation)
+
     def refresh_device_credential(
         self, command: RefreshDeviceCredentialCommand, principal: LocalDevice
     ) -> CommandOutcome:
@@ -1420,7 +1613,7 @@ class LocalMultiplayerService:
             "current_hp": character.current_hp,
             "armor_class": character.armor_class,
             "account_id": character.account_id,
-            "archived_at": (character.archived_at.isoformat() if character.archived_at else None),
+            "archived_at": character.archived_at.isoformat() if character.archived_at else None,
             "level": character.level,
             "experience": character.experience,
             "temporary_hp": character.temporary_hp,
@@ -1461,6 +1654,19 @@ class LocalMultiplayerService:
             "max_hp": character.max_hp,
             "current_hp": character.current_hp,
             "armor_class": character.armor_class,
+            "account_id": character.account_id,
+            "archived_at": character.archived_at.isoformat() if character.archived_at else None,
+            "level": character.level,
+            "experience": character.experience,
+            "temporary_hp": character.temporary_hp,
+            "initiative": character.initiative,
+            "proficiency_bonus": character.proficiency_bonus,
+            "size": character.size,
+            "speed": character.speed,
+            "darkvision": character.darkvision,
+            "species_choices": dict(character.species_choices),
+            "persistent_conditions": list(character.persistent_conditions),
+            "total_weight": str(character.total_weight),
             "abilities": [
                 self._ability_data(self._ruleset.card(card_id)) for card_id in character.ability_ids
             ],
@@ -1495,4 +1701,20 @@ class LocalMultiplayerService:
             "version": npc.version,
             "created_at": npc.created_at.isoformat(),
             "updated_at": npc.updated_at.isoformat(),
+        }
+
+    @staticmethod
+    def _player_note_data(node: PlayerNoteNode) -> ResultData:
+        return {
+            "id": node.id,
+            "room_id": node.room_id,
+            "player_id": node.player_id,
+            "parent_id": node.parent_id,
+            "kind": node.kind,
+            "name": node.name,
+            "body": node.body,
+            "depth": node.depth,
+            "version": node.version,
+            "created_at": node.created_at.isoformat(),
+            "updated_at": node.updated_at.isoformat(),
         }

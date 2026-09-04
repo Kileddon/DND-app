@@ -292,3 +292,46 @@ def test_character_archive_restore_and_active_encounter_guard(
         )
         assert rejected.status_code == 409
         assert rejected.json()["error"]["code"] == "character_in_active_encounter"
+
+
+def test_player_clears_selection_and_edits_own_health(database_url: str, tmp_path: Path) -> None:
+    with TestClient(create_app(settings(database_url, tmp_path), sampler=first_cards)) as client:
+        room, gm_id, gm_credential = bootstrap(client)
+        device, credential = pair_device(client, room["id"], gm_id, gm_credential)
+        player = create_profile(client, device["id"], credential)["player"]
+        character = create_character(client, device["id"], credential)
+
+        updated = body(
+            client.put(
+                f"/api/v2/me/characters/{character['id']}/health",
+                headers={"Authorization": f"Bearer {credential}"},
+                json=command(
+                    device["id"],
+                    current_hp=5,
+                    temporary_hp=4,
+                    expected_version=character["version"],
+                ),
+            )
+        )["data"]
+        assert (updated["current_hp"], updated["temporary_hp"]) == (5, 4)
+
+        cleared = body(
+            client.request(
+                "DELETE",
+                "/api/v2/me/character-selection",
+                headers={"Authorization": f"Bearer {credential}"},
+                json=command(device["id"], expected_version=player["version"]),
+            )
+        )["data"]
+        assert cleared["selected_character_id"] is None
+        snapshot = body(
+            client.get("/api/v2/me/snapshot", headers={"Authorization": f"Bearer {credential}"})
+        )
+        assert snapshot["player"]["selected_character_id"] is None
+        restored = body(
+            client.get(
+                f"/api/v2/characters/{character['id']}",
+                headers={"Authorization": f"Bearer {credential}"},
+            )
+        )
+        assert (restored["current_hp"], restored["temporary_hp"]) == (5, 4)

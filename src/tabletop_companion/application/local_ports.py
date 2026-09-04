@@ -6,7 +6,14 @@ from tabletop_companion.application.ports import UnitOfWork
 from tabletop_companion.domain.access import LocalDevice, PairingInvitation, RoomInvitation
 from tabletop_companion.domain.combat import DiceRoll
 from tabletop_companion.domain.events import DomainEvent
-from tabletop_companion.domain.models import Character, GmNotes, LocalPlayer, NpcNote, Room
+from tabletop_companion.domain.models import (
+    Character,
+    GmNotes,
+    LocalPlayer,
+    NpcNote,
+    PlayerNoteNode,
+    Room,
+)
 from tabletop_companion.domain.sessions import GameSession
 
 
@@ -46,6 +53,14 @@ class LocalMultiplayerUnitOfWork(UnitOfWork, Protocol):
     def save_npc_note(self, note: NpcNote) -> None: ...
 
     def delete_npc_note(self, npc_id: str) -> None: ...
+
+    def list_player_note_nodes(self, player_id: str) -> list[PlayerNoteNode]: ...
+
+    def get_player_note_node(self, node_id: str) -> PlayerNoteNode: ...
+
+    def add_player_note_node(self, node: PlayerNoteNode) -> None: ...
+
+    def save_player_note_node(self, node: PlayerNoteNode) -> None: ...
 
     def add_pairing_invitation(self, invitation: PairingInvitation) -> None: ...
 

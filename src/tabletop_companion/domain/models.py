@@ -248,6 +248,14 @@ class Character:
             self.persistent_conditions = [dict(item) for item in persistent_conditions]
         self.version += 1
 
+    def edit_health(self, *, current_hp: int, temporary_hp: int, expected_version: int) -> None:
+        self.ensure_version(expected_version)
+        if not 0 <= current_hp <= self.max_hp or temporary_hp < 0:
+            raise DomainValidationError("Character health values are invalid.")
+        self.current_hp = current_hp
+        self.temporary_hp = temporary_hp
+        self.version += 1
+
     def add_item(self, item: InventoryItem, *, expected_version: int) -> None:
         self.ensure_version(expected_version)
         if item.quantity <= 0:
@@ -399,3 +407,31 @@ class NpcNote:
     version: int
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(slots=True)
+class PlayerNoteNode:
+    id: str
+    room_id: str
+    player_id: str
+    parent_id: str | None
+    kind: str
+    name: str
+    body: str
+    depth: int
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+    def edit(self, *, name: str, body: str, expected_version: int, now: datetime) -> None:
+        if expected_version != self.version:
+            raise StateConflictError("Player note changed concurrently.")
+        normalized = name.strip()
+        if not normalized:
+            raise DomainValidationError("Player note name must not be blank.")
+        if len(normalized) > 120 or len(body) > 50000:
+            raise DomainValidationError("Player note is too long.")
+        self.name = normalized
+        self.body = body if self.kind == "note" else ""
+        self.version += 1
+        self.updated_at = now

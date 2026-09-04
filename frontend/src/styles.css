@@ -811,6 +811,89 @@ fieldset {
   border-radius: 10px;
   padding: 0.75rem 1rem;
 }
+.mobile-health-editor {
+  display: none;
+}
+.player-notes-settings {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+.player-notes-settings summary,
+.player-note-folder summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.player-note-root-actions,
+.player-note-folder-actions,
+.player-note-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.player-note-tree,
+.player-note-children {
+  display: grid;
+  gap: 0.55rem;
+}
+.player-note-children {
+  margin-top: 0.55rem;
+  padding-left: 1.1rem;
+  border-left: 1px solid var(--border);
+}
+.player-note-folder,
+.player-note-document {
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: #171a23;
+}
+.player-note-folder-actions {
+  margin-top: 0.6rem;
+}
+.player-note-row {
+  justify-content: space-between;
+}
+.note-title {
+  min-width: 0;
+  padding-left: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+.player-note-body {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #101219;
+  border-radius: 0.5rem;
+}
+.player-note-body p {
+  margin: 0;
+}
+.player-note-name-editor,
+.player-note-editor {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.8rem;
+  border: 1px solid var(--gold-dark);
+  border-radius: 0.75rem;
+  background: #20232e;
+}
+.player-note-editor textarea {
+  min-height: calc(6 * 1.5em + 1.5rem);
+  resize: none;
+  overflow: hidden;
+}
 .character-subtitle {
   color: var(--muted);
   margin-top: -0.75rem;
@@ -862,6 +945,28 @@ textarea {
 }
 
 @media (max-width: 700px) {
+  .mobile-health-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.6rem;
+  }
+  .mobile-health-editor label {
+    min-width: 0;
+  }
+  .mobile-health-editor input,
+  .mobile-health-editor button {
+    width: 100%;
+  }
+  .mobile-health-editor button {
+    grid-column: 1 / -1;
+  }
+  .player-note-root-actions > button,
+  .player-note-folder-actions > button {
+    flex: 1 1 9rem;
+  }
+  .player-note-children {
+    padding-left: 0.6rem;
+  }
   .dashboard-grid,
   .player-grid {
     grid-template-columns: 1fr;

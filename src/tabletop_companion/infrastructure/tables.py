@@ -154,6 +154,27 @@ class NpcNoteRecord(Base):
     updated_at: Mapped[str] = mapped_column(String(40))
 
 
+class PlayerNoteNodeRecord(Base):
+    __tablename__ = "player_note_nodes"
+    __table_args__ = (
+        CheckConstraint("kind IN ('folder', 'note')", name="ck_player_note_kind"),
+        CheckConstraint("depth BETWEEN 0 AND 3", name="ck_player_note_depth"),
+        Index("ix_player_note_nodes_owner_parent", "player_id", "parent_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"))
+    player_id: Mapped[str] = mapped_column(ForeignKey("local_players.id"))
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("player_note_nodes.id"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(12))
+    name: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(String(50000), default="")
+    depth: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[str] = mapped_column(String(40))
+
+
 class ItemDefinitionRecord(Base):
     __tablename__ = "item_definitions"
 

@@ -32,10 +32,12 @@ from tabletop_companion.api.runtime import (
 from tabletop_companion.api.schemas import (
     AddInventoryItemRequest,
     BootstrapRoomRequest,
+    CharacterHealthUpdateRequest,
     CharacterLifecycleRequest,
     CharacterSelectRequest,
     CharacterUpdateRequest,
     ChooseAbilityCardRequest,
+    ClearCharacterSelectionRequest,
     CommandMeta,
     ConfirmCharacterDraftRequest,
     DeviceRevokeRequest,
@@ -48,6 +50,8 @@ from tabletop_companion.api.schemas import (
     NpcNoteUpdateRequest,
     PairingCreateRequest,
     PairingExchangeRequest,
+    PlayerNoteNodeCreateRequest,
+    PlayerNoteNodeUpdateRequest,
     ProfileCreateRequest,
     RestartCharacterDraftRequest,
     RoomDiceRollRequest,
@@ -72,8 +76,10 @@ from tabletop_companion.application.commands import (
 from tabletop_companion.application.event_contracts import serialize_event
 from tabletop_companion.application.local_commands import (
     BootstrapRoomCommand,
+    ClearCharacterSelectionCommand,
     CreateNpcNoteCommand,
     CreatePairingCommand,
+    CreatePlayerNoteNodeCommand,
     CreateProfileCommand,
     CreateRoomInvitationCommand,
     CreateSessionCommand,
@@ -92,6 +98,8 @@ from tabletop_companion.application.local_commands import (
     UpdateCharacterCommand,
     UpdateGmNotesCommand,
     UpdateNpcNoteCommand,
+    UpdateOwnCharacterHealthCommand,
+    UpdatePlayerNoteNodeCommand,
 )
 from tabletop_companion.application.local_service import LocalMultiplayerService
 from tabletop_companion.application.replay import ReplayMode, choose_replay_mode
@@ -702,6 +710,60 @@ def register_local_routes(
         await _publish(hub, outcome)
         return _command_response(outcome)
 
+    @app.delete(
+        "/api/v2/me/character-selection",
+        response_model=LocalCommandResponse,
+        tags=["characters"],
+    )
+    async def clear_character_selection(
+        payload: ClearCharacterSelectionRequest,
+        current: CurrentDevice,
+    ) -> LocalCommandResponse:
+        _ensure_matching_device(payload.device_id, current)
+        if current.player_id is None:
+            raise PermissionDeniedError("Create a local profile first.")
+        outcome = local_service.clear_character_selection(
+            ClearCharacterSelectionCommand(
+                command_id=str(payload.command_id),
+                device_id=current.id,
+                client_time=_client_time(payload.client_time),
+                player_id=current.player_id,
+                expected_version=payload.expected_version,
+            ),
+            current,
+        )
+        await _publish(hub, outcome)
+        return _command_response(outcome)
+
+    @app.put(
+        "/api/v2/me/characters/{character_id}/health",
+        response_model=LocalCommandResponse,
+        tags=["characters"],
+    )
+    async def update_own_character_health(
+        character_id: UUID,
+        payload: CharacterHealthUpdateRequest,
+        current: CurrentDevice,
+    ) -> LocalCommandResponse:
+        _ensure_matching_device(payload.device_id, current)
+        if current.player_id is None:
+            raise PermissionDeniedError("Create a local profile first.")
+        outcome = local_service.update_own_character_health(
+            UpdateOwnCharacterHealthCommand(
+                command_id=str(payload.command_id),
+                device_id=current.id,
+                client_time=_client_time(payload.client_time),
+                player_id=current.player_id,
+                character_id=str(character_id),
+                current_hp=payload.current_hp,
+                temporary_hp=payload.temporary_hp,
+                expected_version=payload.expected_version,
+            ),
+            current,
+        )
+        await _publish(hub, outcome)
+        return _command_response(outcome)
+
     @app.post(
         "/api/v2/characters/{character_id}/inventory",
         response_model=LocalCommandResponse,
@@ -1037,6 +1099,67 @@ def register_local_routes(
         if str(room_id) != current.room_id:
             raise PermissionDeniedError("Room does not match the authenticated device.")
         return local_service.get_gm_notes(current)
+
+    @app.get("/api/v2/me/notes", tags=["player-notes"])
+    async def get_player_notes(current: CurrentDevice) -> dict[str, Any]:
+        return local_service.get_player_notes(current)
+
+    @app.post(
+        "/api/v2/me/notes",
+        response_model=LocalCommandResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["player-notes"],
+    )
+    async def create_player_note_node(
+        payload: PlayerNoteNodeCreateRequest,
+        current: CurrentDevice,
+    ) -> LocalCommandResponse:
+        _ensure_matching_device(payload.device_id, current)
+        if current.player_id is None:
+            raise PermissionDeniedError("Create a local profile first.")
+        outcome = local_service.create_player_note_node(
+            CreatePlayerNoteNodeCommand(
+                command_id=str(payload.command_id),
+                device_id=current.id,
+                client_time=_client_time(payload.client_time),
+                player_id=current.player_id,
+                kind=payload.kind,
+                name=payload.name,
+                parent_id=str(payload.parent_id) if payload.parent_id else None,
+            ),
+            current,
+        )
+        await _publish(hub, outcome)
+        return _command_response(outcome)
+
+    @app.put(
+        "/api/v2/me/notes/{node_id}",
+        response_model=LocalCommandResponse,
+        tags=["player-notes"],
+    )
+    async def update_player_note_node(
+        node_id: UUID,
+        payload: PlayerNoteNodeUpdateRequest,
+        current: CurrentDevice,
+    ) -> LocalCommandResponse:
+        _ensure_matching_device(payload.device_id, current)
+        if current.player_id is None:
+            raise PermissionDeniedError("Create a local profile first.")
+        outcome = local_service.update_player_note_node(
+            UpdatePlayerNoteNodeCommand(
+                command_id=str(payload.command_id),
+                device_id=current.id,
+                client_time=_client_time(payload.client_time),
+                player_id=current.player_id,
+                node_id=str(node_id),
+                name=payload.name,
+                body=payload.body,
+                expected_version=payload.expected_version,
+            ),
+            current,
+        )
+        await _publish(hub, outcome)
+        return _command_response(outcome)
 
     @app.put(
         "/api/v2/rooms/{room_id}/notes",

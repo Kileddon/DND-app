@@ -48,6 +48,7 @@ export function CharacterSheet({
   onRefresh,
   preview = false,
   onConfirm,
+  onArchived,
 }: {
   snapshot: Snapshot;
   initial: Character;
@@ -55,6 +56,7 @@ export function CharacterSheet({
   onRefresh: () => void;
   preview?: boolean;
   onConfirm?: () => void;
+  onArchived?: () => void;
 }) {
   const player = snapshot.player!;
   const [character, setCharacter] = useState(initial);
@@ -68,6 +70,8 @@ export function CharacterSheet({
   const [selectedSlot, setSelectedSlot] = useState<string>();
   const [error, setError] = useState<unknown>();
   const [pending, setPending] = useState(false);
+  const [currentHp, setCurrentHp] = useState(initial.current_hp);
+  const [temporaryHp, setTemporaryHp] = useState(initial.temporary_hp ?? 0);
   const detailedSpecies = options?.species?.find(
     (item) => item.id === character.race_id,
   );
@@ -128,6 +132,37 @@ export function CharacterSheet({
     setItemName("");
   }
 
+  async function saveHealth(event: FormEvent) {
+    event.preventDefault();
+    await run(() =>
+      api.updateOwnCharacterHealth(
+        snapshot.current_device_id,
+        character,
+        currentHp,
+        temporaryHp,
+      ),
+    );
+  }
+
+  async function archiveCharacter() {
+    setPending(true);
+    setError(undefined);
+    try {
+      await api.changeCharacterLifecycle(
+        snapshot.current_device_id,
+        character,
+        "archive",
+      );
+      setConfirmArchive(false);
+      onArchived?.();
+      onRefresh();
+    } catch (reason) {
+      setError(reason);
+    } finally {
+      setPending(false);
+    }
+  }
+
   async function equip(slot: string, item: InventoryItem) {
     await run(() =>
       api.equipItem(
@@ -167,6 +202,38 @@ export function CharacterSheet({
             Инициатива {abilityModifier(character.stats.dexterity)}
           </strong>
         </div>
+        {!preview && (
+          <form className="mobile-health-editor" onSubmit={saveHealth}>
+            <label>
+              Текущие HP
+              <input
+                aria-label="Текущие HP"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max={character.max_hp}
+                value={currentHp}
+                onChange={(event) => setCurrentHp(Number(event.target.value))}
+                required
+              />
+            </label>
+            <label>
+              Временные HP
+              <input
+                aria-label="Временные HP"
+                type="number"
+                inputMode="numeric"
+                min="0"
+                value={temporaryHp}
+                onChange={(event) => setTemporaryHp(Number(event.target.value))}
+                required
+              />
+            </label>
+            <button className="secondary" disabled={pending}>
+              Сохранить HP
+            </button>
+          </form>
+        )}
         <p>
           Размер: {sizeLabel(character.size)} · Скорость: {character.speed}{" "}
           футов
@@ -401,15 +468,8 @@ export function CharacterSheet({
             <p>Персонаж исчезнет из активного списка, но история сохранится.</p>
             <button
               className="danger"
-              onClick={() =>
-                run(() =>
-                  api.changeCharacterLifecycle(
-                    snapshot.current_device_id,
-                    character,
-                    "archive",
-                  ),
-                )
-              }
+              disabled={pending}
+              onClick={() => void archiveCharacter()}
             >
               Архивировать
             </button>

@@ -320,6 +320,172 @@ describe("local multiplayer interface", () => {
     expect(screen.queryByText("Тёмное зрение")).not.toBeInTheDocument();
   });
 
+  it("updates the character view immediately after archiving", async () => {
+    const refresh = vi.fn();
+    vi.spyOn(api, "characterOptions").mockResolvedValue({
+      races: [],
+      classes: [],
+      abilities: [],
+    });
+    vi.spyOn(api, "character").mockResolvedValue(character);
+    vi.spyOn(api, "changeCharacterLifecycle").mockResolvedValue({
+      data: { ...character, archived_at: "2026-09-05T00:00:00Z", version: 3 },
+      meta: { replayed: false },
+    });
+    render(<PlayerDashboard snapshot={playerSnapshot} refresh={refresh} />);
+    await userEvent.click(screen.getByRole("button", { name: "Персонаж" }));
+    await screen.findByRole("heading", { name: "Aria" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Архивировать персонажа" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Архивировать" }));
+
+    await waitFor(() =>
+      expect(api.changeCharacterLifecycle).toHaveBeenCalled(),
+    );
+    expect(refresh).toHaveBeenCalled();
+    expect(document.querySelector(".character-sheet")).not.toBeInTheDocument();
+  });
+
+  it("clears the active character before opening the creation flow", async () => {
+    vi.spyOn(api, "characterOptions").mockResolvedValue({
+      races: [{ id: "human", name: "Человек", description: "", hp_bonus: 0 }],
+      classes: [
+        {
+          id: "fighter",
+          name: "Воин",
+          description: "",
+          base_hp: 10,
+          base_armor_class: 14,
+        },
+      ],
+      abilities: [],
+    });
+    vi.spyOn(api, "character").mockResolvedValue(character);
+    vi.spyOn(api, "clearCharacterSelection").mockResolvedValue({
+      data: {
+        ...playerSnapshot.player!,
+        selected_character_id: null,
+        version: 3,
+      },
+      meta: { replayed: false },
+    });
+    render(<PlayerDashboard snapshot={playerSnapshot} refresh={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Персонаж" }));
+    await screen.findByRole("heading", { name: "Aria" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Личный кабинет" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать нового" }),
+    );
+
+    await waitFor(() => expect(api.clearCharacterSelection).toHaveBeenCalled());
+    expect(screen.getByLabelText("Имя нового персонажа")).toBeInTheDocument();
+    expect(document.querySelector(".character-sheet")).not.toBeInTheDocument();
+    expect(screen.queryByText("Персонаж не выбран")).not.toBeInTheDocument();
+  });
+
+  it("lets a player save current and temporary HP", async () => {
+    vi.spyOn(api, "updateOwnCharacterHealth").mockResolvedValue({
+      data: { ...character, current_hp: 7, temporary_hp: 3, version: 3 },
+      meta: { replayed: false },
+    });
+    render(
+      <CharacterSheet
+        snapshot={playerSnapshot}
+        initial={character}
+        onRefresh={vi.fn()}
+      />,
+    );
+    await userEvent.clear(screen.getByLabelText("Текущие HP"));
+    await userEvent.type(screen.getByLabelText("Текущие HP"), "7");
+    await userEvent.clear(screen.getByLabelText("Временные HP"));
+    await userEvent.type(screen.getByLabelText("Временные HP"), "3");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить HP" }));
+
+    await waitFor(() =>
+      expect(api.updateOwnCharacterHealth).toHaveBeenCalledWith(
+        "player-device",
+        character,
+        7,
+        3,
+      ),
+    );
+    expect(screen.getByText("7/20 HP")).toBeInTheDocument();
+    expect(screen.getByText("Временные HP 3")).toBeInTheDocument();
+  });
+
+  it("lets a player organize and edit private notes", async () => {
+    vi.spyOn(api, "characterOptions").mockResolvedValue({
+      races: [],
+      classes: [],
+      abilities: [],
+    });
+    vi.spyOn(api, "playerNotes").mockResolvedValue({ nodes: [] });
+    let version = 1;
+    vi.spyOn(api, "createPlayerNoteNode").mockImplementation(
+      async (_deviceId, kind, name, parentId) => ({
+        data: {
+          id: `${kind}-${name}`,
+          room_id: "room",
+          player_id: "player",
+          parent_id: parentId,
+          kind,
+          name,
+          body: "",
+          depth: parentId ? 1 : 0,
+          version: version++,
+        },
+        meta: { replayed: false },
+      }),
+    );
+    vi.spyOn(api, "updatePlayerNoteNode").mockImplementation(
+      async (_deviceId, node) => ({
+        data: { ...node, version: node.version + 1 },
+        meta: { replayed: false },
+      }),
+    );
+    render(<PlayerDashboard snapshot={playerSnapshot} refresh={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Заметки" }));
+    expect(
+      await screen.findByRole("heading", { name: "Личные заметки" }),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByText("Настройки"));
+    await userEvent.click(screen.getByLabelText("Скрыть создание каталогов"));
+    expect(
+      screen.queryByRole("button", { name: "Создать каталог" }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("Скрыть создание каталогов"));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать каталог" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название каталога"),
+      "Кампания",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^Создать$/ }));
+    expect(await screen.findByText("Кампания")).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "Создать заметку" })[0],
+    );
+    await userEvent.type(screen.getByLabelText("Название заметки"), "Зацепки");
+    await userEvent.click(screen.getByRole("button", { name: /^Создать$/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Редактировать" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Текст заметки"),
+      "След ведёт в башню.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await userEvent.click(screen.getByRole("button", { name: /Зацепки/ }));
+    expect(await screen.findByText("След ведёт в башню.")).toBeInTheDocument();
+  });
+
   it("starts the simple character flow", async () => {
     const withoutCharacter = {
       ...playerSnapshot,
